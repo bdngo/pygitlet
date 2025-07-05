@@ -11,7 +11,6 @@ def repo(tmp_path: Path) -> commands.Repository:
 
 
 def test_successful_init(repo: commands.Repository) -> None:
-    print(repo.gitlet)
     commands.init(repo)
 
 
@@ -19,3 +18,24 @@ def test_unsuccessful_init(repo: commands.Repository) -> None:
     repo.gitlet.mkdir(exist_ok=True)
     with pytest.raises(errors.PyGitletException):
         commands.init(repo)
+
+
+@pytest.fixture
+def temp_file1(tmp_path: Path) -> Path:
+    with (tmp_path / "a.in").open(mode="w") as f:
+        f.write("a")
+    return tmp_path / "a.in"
+
+
+def test_add(repo: commands.Repository, temp_file1: Path) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+
+    assert (repo.stage / "a.in").exists()
+
+
+def test_add_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
+    commands.init(repo)
+
+    with pytest.raises(errors.PyGitletException):
+        commands.add(repo, tmp_path / "b.in")

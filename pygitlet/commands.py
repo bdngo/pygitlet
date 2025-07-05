@@ -44,10 +44,9 @@ class Blob:
 
 
 def file_hash(path: Path) -> str:
-    with path.open(encoding="ascii") as f:
+    with path.open() as f:
         contents = f.read()
-        print(contents)
-        return hashlib.sha1(contents).hexdigest()
+        return hashlib.sha1(contents.encode(encoding="ascii")).hexdigest()
 
 
 @dataclass(frozen=True)
