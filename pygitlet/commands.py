@@ -1,5 +1,6 @@
 import hashlib
 import pickle
+from enum import Enum, auto
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -36,10 +37,17 @@ class Repository:
         return self.branches / ".current-branch"
 
 
+class Diff(Enum):
+    ADDED = auto()
+    REMOVED = auto()
+    CHANGED = auto()
+
+
 @dataclass(frozen=True)
 class Blob:
     name: str
     contents: str
+    diff: Diff
 
     @property
     def hash(self) -> str:
@@ -112,14 +120,23 @@ def init(repo: Repository) -> None:
     write_commit(repo, init_commit)
 
 
-def add(repo: Repository, file: str) -> None:
-    file_path = Path(file)
+def add(repo: Repository, file_path: Path) -> None:
     if not file_path.exists():
         raise PyGitletException("File does not exist.")
 
     with file_path.open() as f:
         contents = f.read()
-    blob = Blob(file_path.name, contents)
+    current_branch = get_current_branch(repo)
+
+    blob = Blob(
+        file_path.name,
+        contents,
+        (
+            Diff.CHANGED
+            if file_path.name in current_branch.commit.file_blob_map
+            else Diff.ADDED
+        ),
+    )
     with (repo.stage / file_path.name).open(mode="wb") as f:
         pickle.dump(blob, f)
 
@@ -134,7 +151,7 @@ def commit(repo: Repository, message: str) -> None:
     for k in repo.stage.iterdir():
         with k.open(mode="rb") as f:
             blob: Blob = pickle.load(f)
-        if not (repo.blobs / blob.hash).exists():
+        if not (repo.blobs / blob.hash).exists() or blob.diff == Diff.REMOVED:
             with (repo.blobs / blob.hash).open(mode="wb") as f:
                 pickle.dump(blob, f)
         blob_dict[blob.name] = blob.hash
@@ -150,3 +167,22 @@ def commit(repo: Repository, message: str) -> None:
     write_commit(repo, commit)
 
     set_branch_commit(repo, current_branch, commit)
+
+
+def remove(repo: Repository, file_path: Path) -> None:
+    current_branch = get_current_branch(repo)
+    if not (
+        (repo.stage / file_path.name).exists()
+        or file_path.name in current_branch.commit.file_blob_map
+    ):
+        raise PyGitletException("No reason to remove the file.")
+
+    with file_path.open() as f:
+        contents = f.read()
+    current_branch = get_current_branch(repo)
+
+    blob = Blob(file_path.name, contents, Diff.REMOVED)
+    with (repo.stage / file_path.name).open(mode="wb") as f:
+        pickle.dump(blob, f)
+
+    file_path.unlink()

@@ -20,10 +20,15 @@ def main() -> None:
     subparsers.add_parser("init", description="Initialize a PyGitlet repository")
 
     parser_add = subparsers.add_parser("add", description="Stage files")
-    parser_add.add_argument("file")
+    parser_add.add_argument("file", type=Path)
 
-    parser_add = subparsers.add_parser("commit", description="Commit staged files")
-    parser_add.add_argument("message")
+    parser_commit = subparsers.add_parser("commit", description="Commit staged files")
+    parser_commit.add_argument("message")
+
+    parser_remove = subparsers.add_parser(
+        "rm", description="Remove staged or committed files"
+    )
+    parser_remove.add_argument("file", type=Path)
 
     args = parser.parse_args()
     repo = commands.Repository(Path.cwd() / ".gitlet")
@@ -35,6 +40,8 @@ def main() -> None:
                 commands.add(repo, args.file)
             case "commit":
                 commands.commit(repo, args.message)
+            case "rm":
+                commands.remove(repo, args.file)
             case _:
                 raise errors.PyGitletException("No command with that name exists.")
     except errors.PyGitletException as e:

@@ -57,6 +57,7 @@ def test_add(repo: commands.Repository, temp_file1: Path) -> None:
 
     assert blob.name == "a.in"
     assert blob.contents == contents
+    assert blob.diff == commands.Diff.ADDED
 
 
 def test_add_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
@@ -103,6 +104,12 @@ def test_commit_changed_file(repo: commands.Repository, temp_file1: Path) -> Non
     assert current_branch.commit.message == "changed a.in"
     assert current_branch.commit.parent.message == "commit a.in"
 
+    with (repo.blobs / current_branch.commit.file_blob_map["a.in"]).open(
+        mode="rb"
+    ) as f:
+        changed_blob: commands.Blob = pickle.load(f)
+    assert changed_blob.diff == commands.Diff.CHANGED
+
 
 def test_commit_multiple_files(
     repo: commands.Repository, temp_file1: Path, temp_file2: Path
@@ -124,10 +131,47 @@ def test_commit_empty_stage(repo: commands.Repository) -> None:
         commands.commit(repo, "empty stage")
 
 
-def test_commit_empty_message(repo: commands.Repository, temp_file1) -> None:
+def test_commit_empty_message(repo: commands.Repository, temp_file1: None) -> None:
     commands.init(repo)
     commands.add(repo, temp_file1)
     with pytest.raises(
         errors.PyGitletException, match=r"Please enter a commit message\."
     ):
         commands.commit(repo, "")
+
+
+def test_remove(repo: commands.Repository, temp_file1: Path) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit a.in")
+    commands.remove(repo, temp_file1)
+
+    assert not temp_file1.exists()
+    assert len(list(repo.stage.iterdir())) == 1
+
+    with (repo.stage / temp_file1.name).open(mode="rb") as f:
+        removed_blob: commands.Blob = pickle.load(f)
+    assert removed_blob.name == temp_file1.name
+    assert removed_blob.diff == commands.Diff.REMOVED
+
+
+def test_remove_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
+    commands.init(repo)
+
+    with pytest.raises(
+        errors.PyGitletException, match=r"No reason to remove the file\."
+    ):
+        commands.remove(repo, tmp_path / "b.in")
+
+
+def test_remove_untracked_file(
+    repo: commands.Repository, temp_file1: Path, temp_file2: Path
+) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit a.in")
+
+    with pytest.raises(
+        errors.PyGitletException, match=r"No reason to remove the file\."
+    ):
+        commands.remove(repo, temp_file2)
