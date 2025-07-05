@@ -49,15 +49,22 @@ def test_add(repo: commands.Repository, temp_file1: Path) -> None:
     commands.init(repo)
     commands.add(repo, temp_file1)
 
-    assert (repo.stage / "a.in").exists()
-    with (repo.stage / "a.in").open(mode="rb") as f:
+    assert (repo.stage / temp_file1.name).exists()
+    with (repo.stage / temp_file1.name).open(mode="rb") as f:
         blob: commands.Blob = pickle.load(f)
     with temp_file1.open() as f:
         contents = f.read()
 
-    assert blob.name == "a.in"
+    assert blob.name == temp_file1
     assert blob.contents == contents
     assert blob.diff == commands.Diff.ADDED
+
+
+def test_add_unchanged_file(repo: commands.Repository, temp_file1: Path) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    commands.add(repo, temp_file1)
+    assert len(list(repo.stage.iterdir())) == 0
 
 
 def test_add_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
@@ -104,7 +111,7 @@ def test_commit_changed_file(repo: commands.Repository, temp_file1: Path) -> Non
     assert current_branch.commit.message == "changed a.in"
     assert current_branch.commit.parent.message == "commit a.in"
 
-    with (repo.blobs / current_branch.commit.file_blob_map["a.in"]).open(
+    with (repo.blobs / current_branch.commit.file_blob_map[temp_file1]).open(
         mode="rb"
     ) as f:
         changed_blob: commands.Blob = pickle.load(f)
@@ -151,7 +158,7 @@ def test_remove(repo: commands.Repository, temp_file1: Path) -> None:
 
     with (repo.stage / temp_file1.name).open(mode="rb") as f:
         removed_blob: commands.Blob = pickle.load(f)
-    assert removed_blob.name == temp_file1.name
+    assert removed_blob.name == temp_file1
     assert removed_blob.diff == commands.Diff.REMOVED
 
 

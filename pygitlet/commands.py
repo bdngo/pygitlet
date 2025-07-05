@@ -45,13 +45,13 @@ class Diff(Enum):
 
 @dataclass(frozen=True)
 class Blob:
-    name: str
+    name: Path
     contents: str
     diff: Diff
 
     @property
     def hash(self) -> str:
-        return hashlib.sha1(self.contents.encode(encoding="ascii")).hexdigest()
+        return hashlib.sha1(self.contents.encode(encoding="utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -63,8 +63,9 @@ class Commit:
 
 
 def write_commit(repo: Repository, commit: Commit) -> None:
-    commit_hash = hash(commit)
-    with (repo.commits / f"{commit_hash:x}").open(mode="wb") as f:
+    commit_serialized = pickle.dumps(commit)
+    commit_hash = hashlib.sha1(commit_serialized).hexdigest()
+    with (repo.commits / commit_hash).open(mode="wb") as f:
         pickle.dump(commit, f)
 
 
@@ -92,7 +93,7 @@ def set_branch_commit(
     repo: Repository,
     branch: Branch,
     commit: Commit,
-) -> Branch:
+) -> None:
     branch.commit = commit
     write_branch(repo, branch)
 
@@ -107,11 +108,11 @@ def init(repo: Repository) -> None:
             ).strip()
         )
 
-    Path.mkdir(repo.gitlet)
-    Path.mkdir(repo.commits)
-    Path.mkdir(repo.blobs)
-    Path.mkdir(repo.stage)
-    Path.mkdir(repo.branches)
+    repo.gitlet.mkdir()
+    repo.commits.mkdir()
+    repo.blobs.mkdir()
+    repo.stage.mkdir()
+    repo.branches.mkdir()
 
     init_commit = Commit(datetime.min, "initial commit", None)
     init_branch = Branch("main", init_commit, True)
@@ -129,16 +130,22 @@ def add(repo: Repository, file_path: Path) -> None:
     current_branch = get_current_branch(repo)
 
     blob = Blob(
-        file_path.name,
+        file_path,
         contents,
         (
             Diff.CHANGED
-            if file_path.name in current_branch.commit.file_blob_map
+            if file_path in current_branch.commit.file_blob_map
             else Diff.ADDED
         ),
     )
-    with (repo.stage / file_path.name).open(mode="wb") as f:
-        pickle.dump(blob, f)
+    if (repo.stage / file_path.name).exists():
+        with (repo.stage / file_path.name).open(mode="rb") as f:
+            prev_blob: Blob = pickle.load(f)
+        if prev_blob.hash == blob.hash:
+            (repo.stage / file_path.name).unlink(missing_ok=True)
+    else:
+        with (repo.stage / file_path.name).open(mode="wb") as f:
+            pickle.dump(blob, f)
 
 
 def commit(repo: Repository, message: str) -> None:
@@ -173,7 +180,7 @@ def remove(repo: Repository, file_path: Path) -> None:
     current_branch = get_current_branch(repo)
     if not (
         (repo.stage / file_path.name).exists()
-        or file_path.name in current_branch.commit.file_blob_map
+        or file_path in current_branch.commit.file_blob_map
     ):
         raise PyGitletException("No reason to remove the file.")
 
@@ -181,7 +188,7 @@ def remove(repo: Repository, file_path: Path) -> None:
         contents = f.read()
     current_branch = get_current_branch(repo)
 
-    blob = Blob(file_path.name, contents, Diff.REMOVED)
+    blob = Blob(file_path, contents, Diff.REMOVED)
     with (repo.stage / file_path.name).open(mode="wb") as f:
         pickle.dump(blob, f)
 
