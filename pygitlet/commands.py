@@ -2,10 +2,11 @@ import hashlib
 import pickle
 from enum import Enum, auto
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from textwrap import dedent
-from typing import Self
+from typing import NamedTuple, Self
 
 from frozendict import frozendict
 
@@ -54,18 +55,30 @@ class Blob:
         return hashlib.sha1(self.contents.encode(encoding="utf-8")).hexdigest()
 
 
+class Merge(NamedTuple):
+    parent1: "Commit"
+    parent2: "Commit"
+
+
 @dataclass(frozen=True)
 class Commit:
     timestamp: datetime
     message: str
-    parent: Self | tuple[Self, Self] | None
+    parent: Self | Merge | None
     file_blob_map: frozendict[Path, Blob] = field(default_factory=frozendict)
+
+    @property
+    def hash(self) -> str:
+        commit_serialized = pickle.dumps(self)
+        return hashlib.sha1(commit_serialized).hexdigest()
+
+    @property
+    def is_merge_commit(self) -> bool:
+        return isinstance(self.parent, Merge)
 
 
 def write_commit(repo: Repository, commit: Commit) -> None:
-    commit_serialized = pickle.dumps(commit)
-    commit_hash = hashlib.sha1(commit_serialized).hexdigest()
-    with (repo.commits / commit_hash).open(mode="wb") as f:
+    with (repo.commits / commit.hash).open(mode="wb") as f:
         pickle.dump(commit, f)
 
 
@@ -114,7 +127,8 @@ def init(repo: Repository) -> None:
     repo.stage.mkdir()
     repo.branches.mkdir()
 
-    init_commit = Commit(datetime.min, "initial commit", None)
+    aware_unix_epoch = datetime.fromtimestamp(0, tz=timezone.utc).astimezone()
+    init_commit = Commit(aware_unix_epoch, "initial commit", None)
     init_branch = Branch("main", init_commit, True)
 
     write_branch(repo, init_branch)
@@ -166,7 +180,7 @@ def commit(repo: Repository, message: str) -> None:
 
     current_branch = get_current_branch(repo)
     commit = Commit(
-        datetime.now(),
+        datetime.now().astimezone(),
         message,
         current_branch.commit,
         file_blob_map=frozendict(blob_dict),
@@ -193,3 +207,19 @@ def remove(repo: Repository, file_path: Path) -> None:
         pickle.dump(blob, f)
 
     file_path.unlink()
+
+
+def log(repo: Repository) -> str:
+    current_commit = get_current_branch(repo).commit
+    log = StringIO()
+    while current_commit is not None:
+        timestamp_formatted = current_commit.timestamp.strftime("%a %b %-d %X %Y %z")
+        if current_commit.is_merge_commit:
+            parent1, parent2 = current_commit.parent
+            message = f"===\ncommit {current_commit.hash}\nMerge: {parent1.hash[:7]} {parent2.hash[:7]}\nDate: {timestamp_formatted}\n{current_commit.message}\n\n"
+        else:
+            message = f"===\ncommit {current_commit.hash}\nDate: {timestamp_formatted}\n{current_commit.message}\n\n"
+        log.write(message)
+        current_commit = current_commit.parent
+    log.seek(0)
+    return log.read().strip()

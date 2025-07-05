@@ -1,6 +1,8 @@
 import pickle
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -91,8 +93,18 @@ def test_commit(repo: commands.Repository, temp_file1: Path) -> None:
     current_branch = commands.get_current_branch(repo)
     assert current_branch.commit.message == message
     assert current_branch.commit.parent == commands.Commit(
-        datetime.min, "initial commit", None
+        datetime.fromtimestamp(0, tz=timezone.utc).astimezone(), "initial commit", None
     )
+
+
+def test_commit_no_duplicate_blob(repo: commands.Repository, temp_file1: Path) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit a.in")
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit a.in again")
+    assert len(list(repo.commits.iterdir())) == 3
+    assert len(list(repo.blobs.iterdir())) == 1
 
 
 def test_commit_changed_file(repo: commands.Repository, temp_file1: Path) -> None:
@@ -182,3 +194,67 @@ def test_remove_untracked_file(
         errors.PyGitletException, match=r"No reason to remove the file\."
     ):
         commands.remove(repo, temp_file2)
+
+
+def test_log_empty_repo(repo: commands.Repository) -> None:
+    commands.init(repo)
+    log = commands.log(repo)
+    assert (
+        log
+        == "===\ncommit 6f37440c08fbeb2036a02f7db7757bfed52e5131\nDate: Wed Dec 31 16:00:00 1969 -0800\ninitial commit"
+    )
+
+
+def test_log_with_commit(repo: commands.Repository, temp_file1) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit a.in")
+    log = commands.log(repo)
+    log_pattern = re.compile(r"===\ncommit [0-9a-f]+\nDate: .+\n.+")
+    assert len(list(re.finditer(log_pattern, log))) == 2
+
+
+@pytest.mark.skip(reason="branching not implmented")
+def test_log_only_current_head(repo: commands.Repository, temp_file1) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit a.in")
+
+    commands.branch("new")
+    commands.checkout("new")
+    with temp_file1.open(mode="w") as f:
+        f.write("b")
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit on new branch")
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit on new branch again")
+    log = commands.log(repo)
+    log_pattern = re.compile(r"(===\ncommit [0-9a-f]+\nDate: .+\n.+)+")
+    assert len(list(re.finditer(log_pattern, log))) == 3
+
+    commands.checkout("main")
+    log = commands.log(repo)
+    assert len(list(re.finditer(log_pattern, log))) == 2
+
+
+@pytest.mark.skip(reason="merge not implemented")
+def test_log_merge_commit(repo: commands.Repository, temp_file1) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit a.in")
+
+    commands.branch("new")
+    commands.checkout("new")
+    with temp_file1.open(mode="w") as f:
+        f.write("b")
+    commands.add(repo, temp_file1)
+    commands.commit(repo, "commit on new branch")
+    commands.checkout("main")
+    commands.merge("new")
+    merge_log_pattern = re.compile(
+        r"===\ncommit [0-9a-f]+\nMerge: [0-9a-f]{7} [0-9a-f{7}\nDate: .+\n.+"
+    )
+    log_pattern = re.compile(r"(===\ncommit [0-9a-f]+\nDate: .+\n.+)+")
+    log = commands.log(repo)
+    assert len(list(re.finditer(merge_log_pattern, log))) == 1
+    assert len(list(re.finditer(log_pattern, log))) == 2
