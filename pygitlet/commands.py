@@ -74,6 +74,7 @@ def write_branch(repo: Repository, branch: Branch) -> None:
     with (repo.branches / branch.name).open(mode="wb") as f:
         pickle.dump(branch, f)
     if branch.is_current:
+        repo.current_branch.unlink(missing_ok=True)
         repo.current_branch.symlink_to(repo.branches / branch.name)
 
 
@@ -96,10 +97,9 @@ def init(repo: Repository) -> None:
         raise PyGitletException(
             dedent(
                 """
-            A Gitlet version-control system
-            already exists in the current directory.
+            A Gitlet version-control system already exists in the current directory.
             """
-            )
+            ).strip()
         )
 
     Path.mkdir(repo.gitlet)
@@ -129,7 +129,7 @@ def add(repo: Repository, file: str) -> None:
 
 def commit(repo: Repository, message: str) -> None:
     if list(repo.stage.iterdir()) == []:
-        print("No changes added to the commit.")
+        raise PyGitletException("No changes added to the commit.")
     elif message == "":
         raise PyGitletException("Please enter a commit message.")
 
