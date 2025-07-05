@@ -33,20 +33,17 @@ class Repository:
 
     @property
     def current_branch(self) -> Path:
-        return self.gitlet / ".current-branch"
+        return self.branches / ".current-branch"
 
 
 @dataclass(frozen=True)
 class Blob:
     name: str
     contents: str
-    hash: str
 
-
-def file_hash(path: Path) -> str:
-    with path.open() as f:
-        contents = f.read()
-        return hashlib.sha1(contents.encode(encoding="ascii")).hexdigest()
+    @property
+    def hash(self) -> str:
+        return hashlib.sha1(self.contents.encode(encoding="ascii")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -122,7 +119,7 @@ def add(repo: Repository, file: str) -> None:
 
     with file_path.open() as f:
         contents = f.read()
-    blob = Blob(file_path.name, contents, file_hash(file_path))
+    blob = Blob(file_path.name, contents)
     with (repo.stage / file_path.name).open(mode="wb") as f:
         pickle.dump(blob, f)
 

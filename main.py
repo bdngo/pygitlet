@@ -1,5 +1,6 @@
 import argparse
 import sys
+from pathlib import Path
 
 from pygitlet import commands, errors
 
@@ -25,7 +26,7 @@ def main() -> None:
     parser_add.add_argument("message")
 
     args = parser.parse_args()
-    repo = commands.Repository()
+    repo = commands.Repository(Path.cwd() / ".gitlet")
     try:
         match args.subcommand:
             case "init":

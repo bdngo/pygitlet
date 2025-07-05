@@ -46,8 +46,16 @@ def test_add_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
 
 def test_commit(repo: commands.Repository, temp_file1: Path) -> None:
     commands.init(repo)
+    assert len(list(repo.commits.iterdir())) == 1
+    assert len(list(repo.blobs.iterdir())) == 0
+
     commands.add(repo, temp_file1)
+    assert len(list(repo.stage.iterdir())) == 1
+
     commands.commit(repo, "commit a.in")
+    assert len(list(repo.commits.iterdir())) == 2
+    assert len(list(repo.blobs.iterdir())) == 1
+    assert len(list(repo.stage.iterdir())) == 0
 
 
 def test_commit_empty_stage(repo: commands.Repository) -> None:
