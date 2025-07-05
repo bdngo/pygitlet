@@ -209,17 +209,31 @@ def remove(repo: Repository, file_path: Path) -> None:
     file_path.unlink()
 
 
+def format_commit(commit: Commit) -> str:
+    timestamp_formatted = commit.timestamp.strftime("%a %b %-d %X %Y %z")
+    if commit.is_merge_commit:
+        parent1, parent2 = commit.parent
+        message = f"===\ncommit {commit.hash}\nMerge: {parent1.hash[:7]} {parent2.hash[:7]}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
+    else:
+        message = f"===\ncommit {commit.hash}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
+    return message
+
+
 def log(repo: Repository) -> str:
     current_commit = get_current_branch(repo).commit
     log = StringIO()
     while current_commit is not None:
-        timestamp_formatted = current_commit.timestamp.strftime("%a %b %-d %X %Y %z")
-        if current_commit.is_merge_commit:
-            parent1, parent2 = current_commit.parent
-            message = f"===\ncommit {current_commit.hash}\nMerge: {parent1.hash[:7]} {parent2.hash[:7]}\nDate: {timestamp_formatted}\n{current_commit.message}\n\n"
-        else:
-            message = f"===\ncommit {current_commit.hash}\nDate: {timestamp_formatted}\n{current_commit.message}\n\n"
-        log.write(message)
+        log.write(format_commit(current_commit))
         current_commit = current_commit.parent
+    log.seek(0)
+    return log.read().strip()
+
+
+def global_log(repo: Repository) -> str:
+    log = StringIO()
+    for serialized_commit_path in repo.commits.iterdir():
+        with serialized_commit_path.open(mode="rb") as f:
+            commit: Commit = pickle.load(f)
+        log.write(format_commit(commit))
     log.seek(0)
     return log.read().strip()

@@ -31,6 +31,7 @@ def main() -> None:
     parser_remove.add_argument("file", type=Path)
 
     subparsers.add_parser("log", description="Log of current head commit")
+    subparsers.add_parser("global-log", description="Log of all commits")
 
     args = parser.parse_args()
     repo = commands.Repository(Path.cwd() / ".gitlet")
@@ -46,6 +47,8 @@ def main() -> None:
                 commands.remove(repo, args.file)
             case "log":
                 print(commands.log(repo))
+            case "global-log":
+                print(commands.global_log(repo))
             case _:
                 raise errors.PyGitletException("No command with that name exists.")
     except errors.PyGitletException as e:
