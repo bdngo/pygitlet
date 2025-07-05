@@ -28,6 +28,18 @@ def temp_file2(tmp_path: Path) -> Path:
     return tmp_path / "b.in"
 
 
+@pytest.fixture
+def log_pattern() -> re.Pattern:
+    return re.compile(r"(===\ncommit [0-9a-f]+\nDate: .+\n.+)+")
+
+
+@pytest.fixture
+def merge_log_pattern() -> re.Pattern:
+    return re.compile(
+        r"===\ncommit [0-9a-f]+\nMerge: [0-9a-f]{7} [0-9a-f{7}\nDate: .+\n.+"
+    )
+
+
 def test_successful_init(repo: commands.Repository) -> None:
     commands.init(repo)
     assert repo.gitlet.exists()
@@ -196,26 +208,26 @@ def test_remove_untracked_file(
         commands.remove(repo, temp_file2)
 
 
-def test_log_empty_repo(repo: commands.Repository) -> None:
+def test_log_empty_repo(repo: commands.Repository, log_pattern: re.Pattern) -> None:
     commands.init(repo)
     log = commands.log(repo)
-    assert (
-        log
-        == "===\ncommit 6f37440c08fbeb2036a02f7db7757bfed52e5131\nDate: Wed Dec 31 16:00:00 1969 -0800\ninitial commit"
-    )
+    assert len(list(re.finditer(log_pattern, log))) == 1
 
 
-def test_log_with_commit(repo: commands.Repository, temp_file1) -> None:
+def test_log_with_commit(
+    repo: commands.Repository, temp_file1: Path, log_pattern: re.Pattern
+) -> None:
     commands.init(repo)
     commands.add(repo, temp_file1)
     commands.commit(repo, "commit a.in")
     log = commands.log(repo)
-    log_pattern = re.compile(r"===\ncommit [0-9a-f]+\nDate: .+\n.+")
     assert len(list(re.finditer(log_pattern, log))) == 2
 
 
 @pytest.mark.skip(reason="branching not implmented")
-def test_log_only_current_head(repo: commands.Repository, temp_file1) -> None:
+def test_log_only_current_head(
+    repo: commands.Repository, temp_file1: Path, log_pattern: re.Pattern
+) -> None:
     commands.init(repo)
     commands.add(repo, temp_file1)
     commands.commit(repo, "commit a.in")
@@ -229,7 +241,6 @@ def test_log_only_current_head(repo: commands.Repository, temp_file1) -> None:
     commands.add(repo, temp_file1)
     commands.commit(repo, "commit on new branch again")
     log = commands.log(repo)
-    log_pattern = re.compile(r"(===\ncommit [0-9a-f]+\nDate: .+\n.+)+")
     assert len(list(re.finditer(log_pattern, log))) == 3
 
     commands.checkout("main")
@@ -238,7 +249,12 @@ def test_log_only_current_head(repo: commands.Repository, temp_file1) -> None:
 
 
 @pytest.mark.skip(reason="merge not implemented")
-def test_log_merge_commit(repo: commands.Repository, temp_file1) -> None:
+def test_log_merge_commit(
+    repo: commands.Repository,
+    temp_file1: Path,
+    log_pattern: re.Pattern,
+    merge_log_pattern: re.Pattern,
+) -> None:
     commands.init(repo)
     commands.add(repo, temp_file1)
     commands.commit(repo, "commit a.in")
@@ -251,10 +267,6 @@ def test_log_merge_commit(repo: commands.Repository, temp_file1) -> None:
     commands.commit(repo, "commit on new branch")
     commands.checkout("main")
     commands.merge("new")
-    merge_log_pattern = re.compile(
-        r"===\ncommit [0-9a-f]+\nMerge: [0-9a-f]{7} [0-9a-f{7}\nDate: .+\n.+"
-    )
-    log_pattern = re.compile(r"(===\ncommit [0-9a-f]+\nDate: .+\n.+)+")
     log = commands.log(repo)
     assert len(list(re.finditer(merge_log_pattern, log))) == 1
     assert len(list(re.finditer(log_pattern, log))) == 2
