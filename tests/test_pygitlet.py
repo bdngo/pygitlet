@@ -308,3 +308,15 @@ def test_global_log_with_reset(
         len(list(re.finditer(log_pattern, log)))
         == len(list(re.finditer(log_pattern, global_log))) - 1
     )
+
+
+def test_find(repo_committed: commands.Repository) -> None:
+    current_commit = commands.get_current_branch(repo_committed).commit
+    assert current_commit.hash == commands.find(repo_committed, current_commit.message)
+
+
+def test_find_no_match(repo_committed: commands.Repository) -> None:
+    with pytest.raises(
+        errors.PyGitletException, match=r"Found no commit with that message\."
+    ):
+        commands.find(repo_committed, "blah")

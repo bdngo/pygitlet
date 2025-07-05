@@ -237,3 +237,15 @@ def global_log(repo: Repository) -> str:
         log.write(format_commit(commit))
     log.seek(0)
     return log.read().strip()
+
+
+def find(repo: Repository, message: str) -> str:
+    filtered_list = []
+    for serialized_commit_path in repo.commits.iterdir():
+        with serialized_commit_path.open(mode="rb") as f:
+            commit: Commit = pickle.load(f)
+            if commit.message == message:
+                filtered_list.append(commit.hash)
+    if filtered_list == []:
+        raise PyGitletException("Found no commit with that message.")
+    return "\n".join(filtered_list)
