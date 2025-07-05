@@ -17,14 +17,14 @@ def repo(tmp_path: Path) -> commands.Repository:
 def temp_file1(tmp_path: Path) -> Path:
     with (tmp_path / "a.in").open(mode="w") as f:
         f.write("a")
-    return tmp_path / "a.in"
+    return Path("a.in")
 
 
 @pytest.fixture
 def temp_file2(tmp_path: Path) -> Path:
     with (tmp_path / "b.in").open(mode="w") as f:
         f.write("b")
-    return tmp_path / "b.in"
+    return Path("b.in")
 
 
 @pytest.fixture
@@ -66,14 +66,14 @@ def test_unsuccessful_init(repo: commands.Repository) -> None:
         commands.init(repo)
 
 
-def test_add(repo: commands.Repository, temp_file1: Path) -> None:
+def test_add(repo: commands.Repository, tmp_path: Path, temp_file1: Path) -> None:
     commands.init(repo)
     commands.add(repo, temp_file1)
 
     assert (repo.stage / temp_file1.name).exists()
     with (repo.stage / temp_file1.name).open(mode="rb") as f:
         blob: commands.Blob = pickle.load(f)
-    with temp_file1.open() as f:
+    with (tmp_path / temp_file1).open() as f:
         contents = f.read()
 
     assert blob.name == temp_file1
@@ -126,9 +126,9 @@ def test_commit_no_duplicate_blob(
 
 
 def test_commit_changed_file(
-    repo_committed: commands.Repository, temp_file1: Path
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
-    with temp_file1.open(mode="w") as f:
+    with (tmp_path / temp_file1).open(mode="w") as f:
         f.write("b")
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "changed a.in")
@@ -145,6 +145,26 @@ def test_commit_changed_file(
     ) as f:
         changed_blob: commands.Blob = pickle.load(f)
     assert changed_blob.diff == commands.Diff.CHANGED
+
+
+def test_commit_removed_file(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    current_commit = commands.get_current_branch(repo_committed).commit
+    with (repo_committed.blobs / current_commit.file_blob_map[temp_file1]).open(
+        mode="rb"
+    ) as f:
+        tracked_blob: commands.Blob = pickle.load(f)
+    commands.add(repo_committed, temp_file1)
+    commands.remove(repo_committed, temp_file1)
+    assert len(list(repo_committed.stage.iterdir())) == 1
+
+    with (repo_committed.stage / temp_file1).open(mode="rb") as f:
+        blob: commands.Blob = pickle.load(f)
+    assert blob.name == tracked_blob.name
+    assert blob.contents == tracked_blob.contents
+    assert blob.hash == tracked_blob.hash
+    assert blob.diff == commands.Diff.REMOVED
 
 
 def test_commit_multiple_files(
@@ -176,10 +196,13 @@ def test_commit_empty_message(repo: commands.Repository, temp_file1: None) -> No
         commands.commit(repo, "")
 
 
-def test_remove(repo_committed: commands.Repository, temp_file1: Path) -> None:
+def test_remove(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    commands.add(repo_committed, temp_file1)
     commands.remove(repo_committed, temp_file1)
 
-    assert not temp_file1.exists()
+    assert not (tmp_path / temp_file1).exists()
     assert len(list(repo_committed.stage.iterdir())) == 1
 
     with (repo_committed.stage / temp_file1.name).open(mode="rb") as f:
@@ -188,13 +211,13 @@ def test_remove(repo_committed: commands.Repository, temp_file1: Path) -> None:
     assert removed_blob.diff == commands.Diff.REMOVED
 
 
-def test_remove_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
+def test_remove_missing_file(repo: commands.Repository) -> None:
     commands.init(repo)
 
     with pytest.raises(
         errors.PyGitletException, match=r"No reason to remove the file\."
     ):
-        commands.remove(repo, tmp_path / "b.in")
+        commands.remove(repo, Path("b.in"))
 
 
 def test_remove_untracked_file(

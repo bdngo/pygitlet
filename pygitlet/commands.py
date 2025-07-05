@@ -137,10 +137,11 @@ def init(repo: Repository) -> None:
 
 
 def add(repo: Repository, file_path: Path) -> None:
-    if not file_path.exists():
+    absolute_path = repo.gitlet.parent / file_path
+    if not absolute_path.exists():
         raise PyGitletException("File does not exist.")
 
-    with file_path.open() as f:
+    with absolute_path.open() as f:
         contents = f.read()
     current_branch = get_current_branch(repo)
 
@@ -153,8 +154,7 @@ def add(repo: Repository, file_path: Path) -> None:
             else Diff.ADDED
         ),
     )
-    relative_path = file_path.relative_to(repo.gitlet.parent)
-    stage_file_path = repo.stage / relative_path
+    stage_file_path = repo.stage / file_path
     if stage_file_path.exists():
         with stage_file_path.open(mode="rb") as f:
             prev_blob: Blob = pickle.load(f)
@@ -175,7 +175,7 @@ def commit(repo: Repository, message: str) -> None:
     for k in repo.stage.iterdir():
         with k.open(mode="rb") as f:
             blob: Blob = pickle.load(f)
-        if not (repo.blobs / blob.hash).exists() or blob.diff == Diff.REMOVED:
+        if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.REMOVED:
             with (repo.blobs / blob.hash).open(mode="wb") as f:
                 pickle.dump(blob, f)
         blob_dict[blob.name] = blob.hash
@@ -195,21 +195,24 @@ def commit(repo: Repository, message: str) -> None:
 
 def remove(repo: Repository, file_path: Path) -> None:
     current_branch = get_current_branch(repo)
-    if not (
-        (repo.stage / file_path.name).exists()
-        or file_path in current_branch.commit.file_blob_map
+    stage_file_path = repo.stage / file_path
+
+    if (
+        not stage_file_path.exists()
+        or file_path not in current_branch.commit.file_blob_map
     ):
         raise PyGitletException("No reason to remove the file.")
 
-    with file_path.open() as f:
+    absolute_path = repo.gitlet.parent / file_path
+    with absolute_path.open() as f:
         contents = f.read()
     current_branch = get_current_branch(repo)
 
     blob = Blob(file_path, contents, Diff.REMOVED)
-    with (repo.stage / file_path.name).open(mode="wb") as f:
+    with stage_file_path.open(mode="wb") as f:
         pickle.dump(blob, f)
 
-    file_path.unlink()
+    absolute_path.unlink()
 
 
 def format_commit(commit: Commit) -> str:
