@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 import pickle
 from enum import Enum, auto
@@ -56,8 +57,8 @@ class Blob:
 
 
 class Merge(NamedTuple):
-    parent1: "Commit"
-    parent2: "Commit"
+    origin: "Commit"
+    target: "Commit"
 
 
 @dataclass(frozen=True)
@@ -82,7 +83,7 @@ def write_commit(repo: Repository, commit: Commit) -> None:
         pickle.dump(commit, f)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Branch:
     name: str
     commit: Commit
@@ -107,7 +108,7 @@ def set_branch_commit(
     branch: Branch,
     commit: Commit,
 ) -> None:
-    branch.commit = commit
+    branch = dataclasses.replace(branch, commit=commit)
     write_branch(repo, branch)
 
 
@@ -152,13 +153,15 @@ def add(repo: Repository, file_path: Path) -> None:
             else Diff.ADDED
         ),
     )
-    if (repo.stage / file_path.name).exists():
-        with (repo.stage / file_path.name).open(mode="rb") as f:
+    relative_path = file_path.relative_to(repo.gitlet.parent)
+    stage_file_path = repo.stage / relative_path
+    if stage_file_path.exists():
+        with stage_file_path.open(mode="rb") as f:
             prev_blob: Blob = pickle.load(f)
         if prev_blob.hash == blob.hash:
-            (repo.stage / file_path.name).unlink(missing_ok=True)
+            stage_file_path.unlink(missing_ok=True)
     else:
-        with (repo.stage / file_path.name).open(mode="wb") as f:
+        with stage_file_path.open(mode="wb") as f:
             pickle.dump(blob, f)
 
 
@@ -212,8 +215,8 @@ def remove(repo: Repository, file_path: Path) -> None:
 def format_commit(commit: Commit) -> str:
     timestamp_formatted = commit.timestamp.strftime("%a %b %-d %X %Y %z")
     if commit.is_merge_commit:
-        parent1, parent2 = commit.parent
-        message = f"===\ncommit {commit.hash}\nMerge: {parent1.hash[:7]} {parent2.hash[:7]}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
+        origin, target = commit.parent
+        message = f"===\ncommit {commit.hash}\nMerge: {origin.hash[:7]} {target.hash[:7]}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
     else:
         message = f"===\ncommit {commit.hash}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
     return message
@@ -224,7 +227,10 @@ def log(repo: Repository) -> str:
     log = StringIO()
     while current_commit is not None:
         log.write(format_commit(current_commit))
-        current_commit = current_commit.parent
+        if current_commit.is_merge_commit:
+            current_commit = current_commit.parent.origin
+        else:
+            current_commit = current_commit.parent
     log.seek(0)
     return log.read().strip()
 
@@ -244,8 +250,8 @@ def find(repo: Repository, message: str) -> str:
     for serialized_commit_path in repo.commits.iterdir():
         with serialized_commit_path.open(mode="rb") as f:
             commit: Commit = pickle.load(f)
-            if commit.message == message:
-                filtered_list.append(commit.hash)
+        if commit.message == message:
+            filtered_list.append(commit.hash)
     if filtered_list == []:
         raise PyGitletException("Found no commit with that message.")
     return "\n".join(filtered_list)
