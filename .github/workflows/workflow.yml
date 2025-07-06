@@ -52,7 +52,7 @@ jobs:
         run: uv sync --locked --all-extras --dev
 
       - name: Build HTML
-        working-directory: ../docs/
+        working-directory: ./docs/
         run: |
           uv run sphinx-apidoc -f -o source/ ../pygitlet/
           uv run make html
