@@ -16,6 +16,10 @@ from .errors import PyGitletException
 
 @dataclass(frozen=True, slots=True)
 class Repository:
+    """
+    Dataclass for holding all PyGitlet folders.
+    """
+
     gitlet: Path
 
     @property
@@ -40,6 +44,10 @@ class Repository:
 
 
 class Diff(StrEnum):
+    """
+    Enum for file diff types.
+    """
+
     ADDED = auto()
     DELETED = auto()
     MODIFIED = auto()
@@ -47,22 +55,36 @@ class Diff(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Blob:
+    """
+    Dataclass for file blobs.
+    """
+
     name: Path
     contents: str
     diff: Diff
 
     @property
     def hash(self) -> str:
+        """Returns SHA-1 hash of file contents."""
         return hashlib.sha1(self.contents.encode(encoding="utf-8")).hexdigest()
 
 
 class Merge(NamedTuple):
+    """
+    Simple tuple for merge commits (i.e. two parents).
+    """
+
     origin: "Commit"
     target: "Commit"
 
 
 @dataclass(frozen=True, slots=True)
 class Commit:
+    """
+    Dataclass for commits, with mapping
+    from relative file paths to blobs.
+    """
+
     timestamp: datetime
     message: str
     parent: Self | Merge | None
@@ -70,6 +92,7 @@ class Commit:
 
     @property
     def hash(self) -> str:
+        """Returns SHA-1 hash of serialized commit."""
         commit_serialized = pickle.dumps(self)
         return hashlib.sha1(commit_serialized).hexdigest()
 
@@ -79,18 +102,38 @@ class Commit:
 
 
 def write_commit(repo: Repository, commit: Commit) -> None:
+    """
+    Writes a commit to the repository commit folder.
+
+    Args:
+        repo: PyGitlet repository.
+        commit: Commit to serialize and save.
+    """
     with (repo.commits / commit.hash).open(mode="wb") as f:
         pickle.dump(commit, f)
 
 
 @dataclass(frozen=True, slots=True)
 class Branch:
+    """
+    Dataclass for a branch, i.e. a pointer to a commit.
+    """
+
     name: str
     commit: Commit
     is_current: bool
 
 
 def write_branch(repo: Repository, branch: Branch) -> None:
+    """
+    Serializes and saves a branch to the repository branch folder,
+    and reassigns the current branch symlink if necessary.
+
+    Args:
+        repo: PyGitlet repository.
+        branch: Branch to serialize and save.
+    """
+
     with (repo.branches / branch.name).open(mode="wb") as f:
         pickle.dump(branch, f)
     if branch.is_current:
@@ -99,6 +142,16 @@ def write_branch(repo: Repository, branch: Branch) -> None:
 
 
 def get_current_branch(repo: Repository) -> Branch:
+    """
+    Utility function to get the current branch
+    based on the branch folder symlink.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        The current working branch.
+    """
     with repo.current_branch.open(mode="rb") as f:
         return pickle.load(f)
 
@@ -108,11 +161,28 @@ def set_branch_commit(
     branch: Branch,
     commit: Commit,
 ) -> None:
+    """
+    Moves a branch to a given commit.
+
+    Args:
+        repo: PyGitlet repository.
+        branch: Branch to move.
+        commit: Commit to assign to branch.
+    """
     branch = dataclasses.replace(branch, commit=commit)
     write_branch(repo, branch)
 
 
 def init(repo: Repository) -> None:
+    """
+    Initalizes a new PyGitlet repository in the given repository.
+
+    Args:
+        repo: Folder to create a PyGitlet repository in.
+
+    Raises:
+        PyGitletException: If a PyGitlet repository already exists in the intended repository.
+    """
     if repo.gitlet.exists():
         raise PyGitletException(
             dedent(
@@ -137,6 +207,31 @@ def init(repo: Repository) -> None:
 
 
 def add(repo: Repository, file_path: Path) -> None:
+    """
+    Stages a file. Overwrites existing staged files
+    if the same named file exists and differs.
+    If identical, the file is unstaged.
+    If previously staged for removal, undoes this.
+
+    Args:
+        repo: PyGitlet repository.
+        file_path: Relative path to file to be staged.
+
+    Raises:
+        PyGitletException: If the requested file doesn't exist.
+    """
+    stage_file_path = repo.stage / file_path
+    if stage_file_path.exists():
+        with stage_file_path.open(mode="rb") as f:
+            potentially_staged_for_removal: Blob = pickle.load(f)
+        if potentially_staged_for_removal.diff == Diff.DELETED:
+            potentially_staged_for_removal = dataclasses.replace(
+                potentially_staged_for_removal, diff=Diff.ADDED
+            )
+        with stage_file_path.open(mode="wb") as f:
+            pickle.dump(potentially_staged_for_removal, f)
+        return
+
     absolute_path = repo.gitlet.parent / file_path
     if not absolute_path.exists():
         raise PyGitletException("File does not exist.")
@@ -150,7 +245,6 @@ def add(repo: Repository, file_path: Path) -> None:
         contents,
         (Diff.MODIFIED if file_path in current_commit.file_blob_map else Diff.ADDED),
     )
-    stage_file_path = repo.stage / file_path
     if (
         file_path in current_commit.file_blob_map
         and current_commit.file_blob_map[file_path].hash == blob.hash
@@ -162,6 +256,16 @@ def add(repo: Repository, file_path: Path) -> None:
 
 
 def commit(repo: Repository, message: str) -> None:
+    """
+    Commits changes to the repository.
+
+    Args:
+        repo: PyGitlet repository.
+        message: Commit message.
+
+    Raises:
+        PyGitletException: If the stage is empty or there is no commit message.
+    """
     if list(repo.stage.iterdir()) == []:
         raise PyGitletException("No changes added to the commit.")
     elif message == "":
@@ -190,6 +294,17 @@ def commit(repo: Repository, message: str) -> None:
 
 
 def remove(repo: Repository, file_path: Path) -> None:
+    """
+    Stages a file for removal.
+    Note that this is different from manually removing a file.
+
+    Args:
+        repo: PyGitlet repository.
+        file_path: Relative path to the file being removed.
+
+    Raises:
+        PyGitletException: If the file either doesn't exist or is not tracked by the current commit.
+    """
     current_branch = get_current_branch(repo)
     stage_file_path = repo.stage / file_path
 
@@ -214,16 +329,36 @@ def remove(repo: Repository, file_path: Path) -> None:
 
 
 def format_commit(commit: Commit) -> str:
+    """
+    Utility function to format commits for logging.
+    Merge commits have the origin branch first, then the target branch.
+    Timestamps are displayed with the local UTC offset.
+
+    Args:
+        commit: Commit to format.
+
+    Returns:
+        A string for logging.
+    """
     timestamp_formatted = commit.timestamp.strftime("%a %b %-d %X %Y %z")
     if commit.is_merge_commit:
-        origin, target = commit.parent
-        message = f"===\ncommit {commit.hash}\nMerge: {origin.hash[:7]} {target.hash[:7]}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
+        message = f"===\ncommit {commit.hash}\nMerge: {commit.parent.origin.hash[:7]} {commit.parent.target.hash[:7]}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
     else:
         message = f"===\ncommit {commit.hash}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
     return message
 
 
 def log(repo: Repository) -> str:
+    """
+    Displays a log of the current linear commit history.
+    This means it does not show commit history that the working branch does not share.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        Linear history log to print.
+    """
     current_commit = get_current_branch(repo).commit
     log = StringIO()
     while current_commit is not None:
@@ -238,6 +373,15 @@ def log(repo: Repository) -> str:
 
 
 def global_log(repo: Repository) -> str:
+    """
+    Displays a global log of all repository commits, regardless of working branch.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        Global history log to print.
+    """
     log = StringIO()
     for serialized_commit_path in repo.commits.iterdir():
         with serialized_commit_path.open(mode="rb") as f:
@@ -248,6 +392,17 @@ def global_log(repo: Repository) -> str:
 
 
 def find(repo: Repository, message: str) -> str:
+    """
+    Searches for commits with a given commit message.
+    Search is exact and case-sensitive.
+
+    Args:
+        repo: PyGitlet repository.
+        message: Search query.
+
+    Returns:
+        IDs of commits with matching messages.
+    """
     filtered_list = []
     for serialized_commit_path in repo.commits.iterdir():
         with serialized_commit_path.open(mode="rb") as f:
@@ -260,6 +415,15 @@ def find(repo: Repository, message: str) -> str:
 
 
 def branch_status(repo: Repository) -> str:
+    """
+    Utility function to generate status of branches.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        Lexicographically sorted branches, with the working branch marked.
+    """
     branch_list = []
     for branch_path in repo.branches.iterdir():
         if not branch_path.is_symlink():
@@ -276,6 +440,15 @@ def branch_status(repo: Repository) -> str:
 
 
 def stage_status(repo: Repository) -> tuple[str, str]:
+    """
+    Utility function to generate status of staged files.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        Lexicographically sorted staged files split into added/modified and removed files.
+    """
     staged_blobs = []
     for blob_path in repo.stage.iterdir():
         with blob_path.open(mode="rb") as f:
@@ -295,6 +468,15 @@ def stage_status(repo: Repository) -> tuple[str, str]:
 
 
 def modified_status(repo: Repository) -> str:
+    """
+    Utility function to generate status of unstaged & modified files.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        Lexicographically sorted unstaged modified files with the type of diff indicated.
+    """
     staged_blobs = []
     for blob_path in repo.stage.iterdir():
         with blob_path.open(mode="rb") as f:
@@ -335,6 +517,15 @@ def modified_status(repo: Repository) -> str:
 
 
 def untracked_status(repo: Repository) -> str:
+    """
+    Utility function to generate status of untracked files.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        Lexicographically sorted untracked files, excluding subdirectories.
+    """
     current_commit = get_current_branch(repo).commit
     untracked_files = "\n".join(
         f.name
@@ -349,6 +540,15 @@ def untracked_status(repo: Repository) -> str:
 
 
 def status(repo: Repository) -> str:
+    """
+    Prints status of repository.
+
+    Args:
+        repo: PyGitlet repository.
+
+    Returns:
+        Status of repository, including branches, staged files, modified tracked files, and untracked files.
+    """
     branch_string = branch_status(repo)
     staged_files, removed_files = stage_status(repo)
     modified_files = modified_status(repo)

@@ -12,4 +12,8 @@ dependencies = [
 dev = [
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
+    "sphinx>=8.2.3",
 ]
+
+[tool.uv]
+package = true

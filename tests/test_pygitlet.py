@@ -103,6 +103,18 @@ def test_add_duplicate_file(
     assert len(list(repo_committed.stage.iterdir())) == 0
 
 
+def test_add_removed_file(
+    repo_committed: commands.Repository, temp_file1: Path
+) -> None:
+    commands.remove(repo_committed, temp_file1)
+    commands.add(repo_committed, temp_file1)
+    assert len(list(repo_committed.stage.iterdir())) == 1
+
+    with (repo_committed.stage / temp_file1).open(mode="rb") as f:
+        blob: commands.Blob = pickle.load(f)
+    assert blob.diff == commands.Diff.ADDED
+
+
 def test_commit(repo: commands.Repository, temp_file1: Path) -> None:
     commands.init(repo)
     assert len(list(repo.commits.iterdir())) == 1
