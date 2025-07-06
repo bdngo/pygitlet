@@ -689,20 +689,18 @@ def test_checkout_branch(
     assert commands.get_current_branch(repo_committed).name == "new"
 
 
-def test_checkout_branch_nonexistent(repo_committed: commands.Repository) -> None:
+def test_checkout_branch_nonexistent(repo: commands.Repository) -> None:
+    commands.init(repo)
     with pytest.raises(errors.PyGitletException, match=r"No such branch exists\."):
-        commands.checkout_branch(repo_committed, "foo")
+        commands.checkout_branch(repo, "foo")
 
 
-def test_checkout_branch_is_current(
-    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
-) -> None:
+def test_checkout_branch_is_current(repo: commands.Repository) -> None:
+    commands.init(repo)
     with pytest.raises(
         errors.PyGitletException, match=r"No need to checkout the current branch\."
     ):
-        commands.checkout_branch(
-            repo_committed, commands.get_current_branch(repo_committed).name
-        )
+        commands.checkout_branch(repo, commands.get_current_branch(repo).name)
 
 
 def test_checkout_overwrite_untracked_file(
@@ -736,3 +734,33 @@ def test_branch_existing(repo: Path) -> None:
     ):
         commands.branch(repo, "new")
     assert len(list(repo.branches.iterdir())) == 3
+
+
+def test_remove_branch(repo: Path) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.remove_branch(repo, "new")
+    assert len(list(repo.branches.iterdir())) == 2
+
+
+def test_remove_branch_current(repo: Path) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    with pytest.raises(
+        errors.PyGitletException, match=r"Cannot remove the current branch\."
+    ):
+        commands.remove_branch(repo, "main")
+
+    commands.checkout_branch(repo, "new")
+    with pytest.raises(
+        errors.PyGitletException, match=r"Cannot remove the current branch\."
+    ):
+        commands.remove_branch(repo, "new")
+
+
+def test_remove_branch_nonexistent(repo: Path) -> None:
+    commands.init(repo)
+    with pytest.raises(
+        errors.PyGitletException, match=r"A branch with that name does not exist\."
+    ):
+        commands.remove_branch(repo, "new")

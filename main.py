@@ -37,8 +37,14 @@ def main() -> None:
     parser_checkout = subparsers.add_parser(
         "checkout", description="Checkout files, commits, or branches"
     )
-    parser_checkout.add_argument("target", nargs="?")
-    parser_checkout.add_argument("file")
+    parser_checkout.add_argument("checkout_args", nargs=argparse.REMAINDER)
+
+    parser_branch = subparsers.add_parser("branch", description="Create a new branch")
+    parser_branch.add_argument("branch")
+    parser_remove_branch = subparsers.add_parser(
+        "rm-branch", description="Remove a branch"
+    )
+    parser_remove_branch.add_argument("branch")
 
     args = parser.parse_args()
     repo = commands.Repository(Path.cwd() / ".gitlet")
@@ -59,15 +65,19 @@ def main() -> None:
             case "status":
                 print(commands.status(repo))
             case "checkout":
-                match [args.target, args.files]:
-                    case [None, file]:
+                match args.checkout_args:
+                    case ["--", file]:
                         commands.checkout_file(repo, file)
                     case [commit_id, file]:
                         commands.checkout_commit(repo, commit_id, file)
-                    case [branch, None]:
+                    case [branch]:
                         commands.checkout_branch(repo, branch)
                     case _:
                         raise errors.PyGitletException("Unreachable checkout syntax")
+            case "branch":
+                commands.branch(repo, args.branch)
+            case "rm-branch":
+                commands.remove_branch(repo, args.branch)
             case _:
                 raise errors.PyGitletException("No command with that name exists.")
     except errors.PyGitletException as e:

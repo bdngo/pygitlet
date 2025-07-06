@@ -665,3 +665,11 @@ def branch(repo: Repository, branch_name: str) -> None:
     current_commit = get_current_branch(repo).commit
     new_branch = Branch(branch_name, current_commit, False)
     write_branch(repo, new_branch)
+
+
+def remove_branch(repo: Repository, branch_name: str):
+    if not (repo.branches / branch_name).exists():
+        raise PyGitletException("A branch with that name does not exist.")
+    if get_current_branch(repo).name == branch_name:
+        raise PyGitletException("Cannot remove the current branch.")
+    (repo.branches / branch_name).unlink()
