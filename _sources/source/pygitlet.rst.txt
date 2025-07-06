@@ -1,0 +1,29 @@
+pygitlet package
+================
+
+Submodules
+----------
+
+pygitlet.commands module
+------------------------
+
+.. automodule:: pygitlet.commands
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+pygitlet.errors module
+----------------------
+
+.. automodule:: pygitlet.errors
+   :members:
+   :show-inheritance:
+   :undoc-members:
+
+Module contents
+---------------
+
+.. automodule:: pygitlet
+   :members:
+   :show-inheritance:
+   :undoc-members:

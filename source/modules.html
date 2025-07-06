@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>pygitlet &#8212; PyGitlet  documentation</title>
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../_static/alabaster.css?v=27fed22d" />
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="pygitlet package" href="pygitlet.html" />
+    <link rel="prev" title="PyGitlet documentation" href="../index.html" />
+   
+  <link rel="stylesheet" href="../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="pygitlet">
+<h1>pygitlet<a class="headerlink" href="#pygitlet" title="Link to this heading">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="pygitlet.html">pygitlet package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="pygitlet.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="pygitlet.html#module-pygitlet.commands">pygitlet.commands module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Blob"><code class="docutils literal notranslate"><span class="pre">Blob</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Blob.contents"><code class="docutils literal notranslate"><span class="pre">Blob.contents</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Blob.diff"><code class="docutils literal notranslate"><span class="pre">Blob.diff</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Blob.hash"><code class="docutils literal notranslate"><span class="pre">Blob.hash</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Blob.name"><code class="docutils literal notranslate"><span class="pre">Blob.name</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch"><code class="docutils literal notranslate"><span class="pre">Branch</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.commit"><code class="docutils literal notranslate"><span class="pre">Branch.commit</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.is_current"><code class="docutils literal notranslate"><span class="pre">Branch.is_current</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.name"><code class="docutils literal notranslate"><span class="pre">Branch.name</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit"><code class="docutils literal notranslate"><span class="pre">Commit</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit.file_blob_map"><code class="docutils literal notranslate"><span class="pre">Commit.file_blob_map</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit.hash"><code class="docutils literal notranslate"><span class="pre">Commit.hash</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit.is_merge_commit"><code class="docutils literal notranslate"><span class="pre">Commit.is_merge_commit</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit.message"><code class="docutils literal notranslate"><span class="pre">Commit.message</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit.parent"><code class="docutils literal notranslate"><span class="pre">Commit.parent</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit.timestamp"><code class="docutils literal notranslate"><span class="pre">Commit.timestamp</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Diff"><code class="docutils literal notranslate"><span class="pre">Diff</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Diff.ADDED"><code class="docutils literal notranslate"><span class="pre">Diff.ADDED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Diff.DELETED"><code class="docutils literal notranslate"><span class="pre">Diff.DELETED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Diff.MODIFIED"><code class="docutils literal notranslate"><span class="pre">Diff.MODIFIED</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Merge"><code class="docutils literal notranslate"><span class="pre">Merge</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Merge.origin"><code class="docutils literal notranslate"><span class="pre">Merge.origin</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Merge.target"><code class="docutils literal notranslate"><span class="pre">Merge.target</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository"><code class="docutils literal notranslate"><span class="pre">Repository</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.blobs"><code class="docutils literal notranslate"><span class="pre">Repository.blobs</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.branches"><code class="docutils literal notranslate"><span class="pre">Repository.branches</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.commits"><code class="docutils literal notranslate"><span class="pre">Repository.commits</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.current_branch"><code class="docutils literal notranslate"><span class="pre">Repository.current_branch</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.gitlet"><code class="docutils literal notranslate"><span class="pre">Repository.gitlet</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.stage"><code class="docutils literal notranslate"><span class="pre">Repository.stage</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.add"><code class="docutils literal notranslate"><span class="pre">add()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.branch_status"><code class="docutils literal notranslate"><span class="pre">branch_status()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.commit"><code class="docutils literal notranslate"><span class="pre">commit()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.find"><code class="docutils literal notranslate"><span class="pre">find()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.format_commit"><code class="docutils literal notranslate"><span class="pre">format_commit()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.get_current_branch"><code class="docutils literal notranslate"><span class="pre">get_current_branch()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.global_log"><code class="docutils literal notranslate"><span class="pre">global_log()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.init"><code class="docutils literal notranslate"><span class="pre">init()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.log"><code class="docutils literal notranslate"><span class="pre">log()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.modified_status"><code class="docutils literal notranslate"><span class="pre">modified_status()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.remove"><code class="docutils literal notranslate"><span class="pre">remove()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.set_branch_commit"><code class="docutils literal notranslate"><span class="pre">set_branch_commit()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.stage_status"><code class="docutils literal notranslate"><span class="pre">stage_status()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.status"><code class="docutils literal notranslate"><span class="pre">status()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.untracked_status"><code class="docutils literal notranslate"><span class="pre">untracked_status()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.write_branch"><code class="docutils literal notranslate"><span class="pre">write_branch()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.write_commit"><code class="docutils literal notranslate"><span class="pre">write_commit()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pygitlet.html#module-pygitlet.errors">pygitlet.errors module</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.errors.PyGitletException"><code class="docutils literal notranslate"><span class="pre">PyGitletException</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pygitlet.html#module-pygitlet">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../index.html">PyGitlet</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">pygitlet</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="pygitlet.html">pygitlet package</a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="../index.html" title="previous chapter">PyGitlet documentation</a></li>
+      <li>Next: <a href="pygitlet.html" title="next chapter">pygitlet package</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Bryan Ngo.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="../_sources/source/modules.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

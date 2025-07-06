@@ -1,0 +1,7 @@
+pygitlet
+========
+
+.. toctree::
+   :maxdepth: 4
+
+   pygitlet
