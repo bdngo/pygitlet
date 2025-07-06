@@ -52,7 +52,7 @@ jobs:
         run: uv sync --locked --all-extras --dev
 
       - name: Build HTML
-        uses: ammaraskar/sphinx-action@master
+        uses: ammaraskar/sphinx-action@8.2.3
         with:
           build-command: "uv run make html"
 
@@ -67,4 +67,4 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: docs/_build/html
+          publish_dir: docs/_build/html/
