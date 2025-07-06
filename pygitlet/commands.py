@@ -643,5 +643,25 @@ def checkout_branch(repo: Repository, branch_name: str) -> None:
         if staged_file.is_file():
             staged_file.unlink()
 
+    updated_current_branch = dataclasses.replace(current_branch, is_current=False)
     updated_target_branch = dataclasses.replace(target_branch, is_current=True)
+    write_branch(repo, updated_current_branch)
     write_branch(repo, updated_target_branch)
+
+
+def branch(repo: Repository, branch_name: str) -> None:
+    """
+    Creates a new branch pointing to the current commit.
+
+    Args:
+        repo: PyGitlet repository.
+        branch_name: New branch name.
+
+    Raises:
+        PyGitletException: If the desired branch name already exists.
+    """
+    if (repo.branches / branch_name).exists():
+        raise PyGitletException("A branch with that name already exists.")
+    current_commit = get_current_branch(repo).commit
+    new_branch = Branch(branch_name, current_commit, False)
+    write_branch(repo, new_branch)

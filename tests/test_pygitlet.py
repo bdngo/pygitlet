@@ -250,24 +250,27 @@ def test_log_with_commit(
     assert len(list(re.finditer(log_pattern, log))) == 2
 
 
-@pytest.mark.skip(reason="branching not implmented")
 def test_log_only_current_head(
     repo_committed: commands.Repository,
     tmp_path: Path,
     temp_file1: Path,
     log_pattern: re.Pattern,
 ) -> None:
-    commands.branch("new")
-    commands.checkout("new")
+    commands.branch(repo_committed, "new")
+    commands.checkout_branch(repo_committed, "new")
+
     (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "commit on new branch")
+
+    (tmp_path / temp_file1).write_text("c")
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "commit on new branch again")
-    log = commands.log(repo_committed)
-    assert len(list(re.finditer(log_pattern, log))) == 3
 
-    commands.checkout("main")
+    log = commands.log(repo_committed)
+    assert len(list(re.finditer(log_pattern, log))) == 4
+
+    commands.checkout_branch(repo_committed, "main")
     log = commands.log(repo_committed)
     assert len(list(re.finditer(log_pattern, log))) == 2
 
@@ -378,7 +381,6 @@ def test_status_empty_repo(repo: commands.Repository) -> None:
     assert status == expected
 
 
-@pytest.mark.skip(reason="branching not implemented")
 def test_status_multiple_branches(repo: commands.Repository) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -388,6 +390,24 @@ def test_status_multiple_branches(repo: commands.Repository) -> None:
     === Branches ===
     *main
     new
+
+    === Staged Files ===
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+    commands.checkout_branch(repo, "new")
+    status = commands.status(repo)
+    expected = dedent(
+        """
+    === Branches ===
+    main
+    *new
 
     === Staged Files ===
 
@@ -649,12 +669,12 @@ def test_checkout_commit_bad_id(
         commands.checkout_commit(repo_committed, "foobar", temp_file1)
 
 
-@pytest.mark.skip(reason="branching not implemented")
 def test_checkout_branch(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
     old_contents = (tmp_path / temp_file1).read_text()
     commands.branch(repo_committed, "new")
+    commands.checkout_branch(repo_committed, "new")
 
     (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
@@ -685,7 +705,6 @@ def test_checkout_branch_is_current(
         )
 
 
-@pytest.mark.skip(reason="branching not implemented")
 def test_checkout_overwrite_untracked_file(
     repo: Path, tmp_path: Path, temp_file1: Path, temp_file2: Path
 ) -> None:
@@ -700,4 +719,20 @@ def test_checkout_overwrite_untracked_file(
         errors.PyGitletException,
         match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
     ):
-        commands.checkout(repo, "new")
+        commands.checkout_branch(repo, "new")
+
+
+def test_branch_create(repo: Path) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    assert len(list(repo.branches.iterdir())) == 3
+
+
+def test_branch_existing(repo: Path) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    with pytest.raises(
+        errors.PyGitletException, match=r"A branch with that name already exists\."
+    ):
+        commands.branch(repo, "new")
+    assert len(list(repo.branches.iterdir())) == 3
