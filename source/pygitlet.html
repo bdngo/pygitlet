@@ -241,6 +241,26 @@ If previously staged for removal, undoes this.</p>
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="pygitlet.commands.checkout_branch">
+<span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">checkout_branch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Repository" title="pygitlet.commands.Repository"><span class="pre">Repository</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pygitlet.commands.checkout_branch" title="Link to this definition">¶</a></dt>
+<dd><p>Switches branches, overwriting all tracked files in the working directory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>repo</strong> – PyGitlet repository.</p></li>
+<li><p><strong>branch_name</strong> – Name of branch to switch to.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><a class="reference internal" href="#pygitlet.errors.PyGitletException" title="pygitlet.errors.PyGitletException"><strong>PyGitletException</strong></a> – If the branch doesn’t exist, is the current branch,</p></li>
+<li><p><strong>or if there are any untracked files that would be overwritten by the checkout.</strong> – </p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="pygitlet.commands.checkout_commit">
 <span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">checkout_commit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Repository" title="pygitlet.commands.Repository"><span class="pre">Repository</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">commit_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pygitlet.commands.checkout_commit" title="Link to this definition">¶</a></dt>
 <dd><p>Checkouts a file from a given commit ID, overwriting the working version.</p>
@@ -353,6 +373,12 @@ based on the branch folder symlink.</p>
 <dd class="field-even"><p>Global history log to print.</p>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="pygitlet.commands.hash_contents">
+<span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">hash_contents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contents</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#pygitlet.commands.hash_contents" title="Link to this definition">¶</a></dt>
+<dd><p>Returns SHA-1 hash of a string.</p>
 </dd></dl>
 
 <dl class="py function">
