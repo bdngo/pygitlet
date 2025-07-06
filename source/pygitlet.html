@@ -241,6 +241,41 @@ If previously staged for removal, undoes this.</p>
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="pygitlet.commands.checkout_commit">
+<span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">checkout_commit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Repository" title="pygitlet.commands.Repository"><span class="pre">Repository</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">commit_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pygitlet.commands.checkout_commit" title="Link to this definition">¶</a></dt>
+<dd><p>Checkouts a file from a given commit ID, overwriting the working version.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>repo</strong> – PyGitlet repository.</p></li>
+<li><p><strong>commit_id</strong> – SHA-1 hash (or substring thereof) of commit to check out from.</p></li>
+<li><p><strong>file_path</strong> – Relative path of file to check out.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#pygitlet.errors.PyGitletException" title="pygitlet.errors.PyGitletException"><strong>PyGitletException</strong></a> – If the commit ID does not exist or the file is not tracked by the desired commit.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="pygitlet.commands.checkout_file">
+<span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">checkout_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Repository" title="pygitlet.commands.Repository"><span class="pre">Repository</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Path</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pygitlet.commands.checkout_file" title="Link to this definition">¶</a></dt>
+<dd><p>Checks out a file from the head commit, overwriting the working version.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>repo</strong> – PyGitlet repository.</p></li>
+<li><p><strong>file_path</strong> – Relative path to file to check out.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#pygitlet.errors.PyGitletException" title="pygitlet.errors.PyGitletException"><strong>PyGitletException</strong></a> – If the file is not tracked by the current commit.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="pygitlet.commands.commit">
 <span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">commit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Repository" title="pygitlet.commands.Repository"><span class="pre">Repository</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">message</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pygitlet.commands.commit" title="Link to this definition">¶</a></dt>
 <dd><p>Commits changes to the repository.</p>
