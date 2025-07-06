@@ -27,8 +27,12 @@ jobs:
       - name: Install the project
         run: uv sync --locked --all-extras --dev
 
+      - name: Run mypy
+        run: uv run mypy pygitlet
+
       - name: Run tests
         run: uv run pytest --cov
+
   
   build:
     runs-on: ubuntu-latest

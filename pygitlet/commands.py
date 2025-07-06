@@ -53,6 +53,11 @@ class Diff(StrEnum):
     MODIFIED = auto()
 
 
+def hash_contents(contents: str) -> str:
+    """Returns SHA-1 hash of a string."""
+    return hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class Blob:
     """
@@ -66,7 +71,7 @@ class Blob:
     @property
     def hash(self) -> str:
         """Returns SHA-1 hash of file contents."""
-        return hashlib.sha1(self.contents.encode(encoding="utf-8")).hexdigest()
+        return hash_contents(self.contents)
 
 
 class Merge(NamedTuple):
@@ -486,7 +491,7 @@ def modified_status(repo: Repository) -> str:
     for relative_path, blob in current_commit.file_blob_map.items():
         if (repo.gitlet.parent / relative_path).exists():
             contents = (repo.gitlet.parent / relative_path).read_text()
-            if hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest() != blob.hash:
+            if hash_contents(contents) != blob.hash:
                 modified_files_with_diff[relative_path] = Diff.MODIFIED
         else:
             potentially_staged_for_removal = repo.stage / relative_path
@@ -496,10 +501,7 @@ def modified_status(repo: Repository) -> str:
         if staged_blob.diff == Diff.ADDED:
             if (repo.gitlet.parent / staged_blob.name).exists():
                 contents = (repo.gitlet.parent / staged_blob.name).read_text()
-                if (
-                    hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest()
-                    != staged_blob.hash
-                ):
+                if hash_contents(contents) != staged_blob.hash:
                     modified_files_with_diff[staged_blob.name] = Diff.MODIFIED
             else:
                 modified_files_with_diff[staged_blob.name] = Diff.DELETED
@@ -602,3 +604,44 @@ def checkout_commit(repo: Repository, commit_id: str, file_path: Path) -> None:
         raise PyGitletException("File does not exist in that commit.")
     file_blob = found_commit.file_blob_map[file_path]
     (repo.gitlet.parent / file_path).write_text(file_blob.contents)
+
+
+def checkout_branch(repo: Repository, branch_name: str) -> None:
+    """
+    Switches branches, overwriting all tracked files in the working directory.
+
+    Args:
+        repo: PyGitlet repository.
+        branch_name: Name of branch to switch to.
+
+    Raises:
+        PyGitletException: If the branch doesn't exist, is the current branch,
+        or if there are any untracked files that would be overwritten by the checkout.
+    """
+    current_branch = get_current_branch(repo)
+    if not (repo.branches / branch_name).exists():
+        raise PyGitletException("No such branch exists.")
+    if current_branch.name == branch_name:
+        raise PyGitletException("No need to checkout the current branch.")
+
+    with (repo.branches / branch_name).open(mode="rb") as f:
+        target_branch: Branch = pickle.load(f)
+    for old_file_name, blob in current_branch.commit.file_blob_map.items():
+        absolute_path = repo.gitlet.parent / old_file_name
+        if blob.hash != hash_contents(absolute_path.read_text()):
+            raise PyGitletException(
+                "There is an untracked file in the way; delete it, or add and commit it first."
+            )
+        if old_file_name not in target_branch.commit.file_blob_map:
+            absolute_path.unlink()
+
+    for file_name, blob in target_branch.commit.file_blob_map.items():
+        absolute_path = repo.gitlet.parent / file_name
+        absolute_path.write_text(blob.contents)
+
+    for staged_file in repo.stage.iterdir():
+        if staged_file.is_file():
+            staged_file.unlink()
+
+    updated_target_branch = dataclasses.replace(target_branch, is_current=True)
+    write_branch(repo, updated_target_branch)

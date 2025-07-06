@@ -647,3 +647,57 @@ def test_checkout_commit_bad_id(
         errors.PyGitletException, match=r"No commit with that id exists\."
     ):
         commands.checkout_commit(repo_committed, "foobar", temp_file1)
+
+
+@pytest.mark.skip(reason="branching not implemented")
+def test_checkout_branch(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    old_contents = (tmp_path / temp_file1).read_text()
+    commands.branch(repo_committed, "new")
+
+    (tmp_path / temp_file1).write_text("b")
+    commands.add(repo_committed, temp_file1)
+    commands.commit(repo_committed, "changed on new branch")
+
+    commands.checkout_branch(repo_committed, "main")
+    assert (tmp_path / temp_file1).read_text() == old_contents
+    assert commands.get_current_branch(repo_committed).name == "main"
+
+    commands.checkout_branch(repo_committed, "new")
+    assert (tmp_path / temp_file1).read_text() == "b"
+    assert commands.get_current_branch(repo_committed).name == "new"
+
+
+def test_checkout_branch_nonexistent(repo_committed: commands.Repository) -> None:
+    with pytest.raises(errors.PyGitletException, match=r"No such branch exists\."):
+        commands.checkout_branch(repo_committed, "foo")
+
+
+def test_checkout_branch_is_current(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    with pytest.raises(
+        errors.PyGitletException, match=r"No need to checkout the current branch\."
+    ):
+        commands.checkout_branch(
+            repo_committed, commands.get_current_branch(repo_committed).name
+        )
+
+
+@pytest.mark.skip(reason="branching not implemented")
+def test_checkout_overwrite_untracked_file(
+    repo: Path, tmp_path: Path, temp_file1: Path, temp_file2: Path
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, temp_file1)
+    commands.add(repo, temp_file2)
+    commands.commit(repo, "commit two files")
+
+    (tmp_path / temp_file1).write_text("b")
+    with pytest.raises(
+        errors.PyGitletException,
+        match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
+    ):
+        commands.checkout(repo, "new")
