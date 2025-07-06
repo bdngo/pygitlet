@@ -354,16 +354,12 @@ def status(repo: Repository) -> str:
     modified_files = modified_status(repo)
     untracked_files = untracked_status(repo)
 
-    return dedent(
-        f"""
-    === Branches ===
-    {branch_string}
-    === Staged Files ===
-    {staged_files}
-    === Removed Files ===
-    {removed_files}
-    === Modifications Not Staged For Commit ===
-    {modified_files}
-    === Untracked Files ===
-    {untracked_files}"""
+    return "\n".join(
+        [
+            f"=== Branches ===\n{branch_string}",
+            f"=== Staged Files ===\n{staged_files}",
+            f"=== Removed Files ===\n{removed_files}",
+            f"=== Modifications Not Staged For Commit ===\n{modified_files}",
+            f"=== Untracked Files ===\n{untracked_files}",
+        ]
     ).strip()
