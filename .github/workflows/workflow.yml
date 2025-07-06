@@ -53,7 +53,9 @@ jobs:
 
       - name: Build HTML
         working-directory: ../docs/
-        run: uv run make html
+        run: |
+          uv run sphinx-apidoc -f -o source/ ../pygitlet/
+          uv run make html
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
