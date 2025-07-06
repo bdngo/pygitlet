@@ -153,7 +153,7 @@ def add(repo: Repository, file_path: Path) -> None:
     stage_file_path = repo.stage / file_path
     if (
         file_path in current_commit.file_blob_map
-        and current_commit.file_blob_map[file_path] == blob.hash
+        and current_commit.file_blob_map[file_path].hash == blob.hash
     ):
         stage_file_path.unlink(missing_ok=True)
     else:
@@ -174,7 +174,7 @@ def commit(repo: Repository, message: str) -> None:
         if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
             with (repo.blobs / blob.hash).open(mode="wb") as f:
                 pickle.dump(blob, f)
-        blob_dict[blob.name] = blob.hash
+        blob_dict[blob.name] = blob
         k.unlink()
 
     current_branch = get_current_branch(repo)
@@ -195,7 +195,7 @@ def remove(repo: Repository, file_path: Path) -> None:
 
     if (
         not stage_file_path.exists()
-        or file_path not in current_branch.commit.file_blob_map
+        and file_path not in current_branch.commit.file_blob_map
     ):
         raise PyGitletException("No reason to remove the file.")
 
@@ -303,11 +303,11 @@ def modified_status(repo: Repository) -> str:
 
     modified_files_with_diff = {}
     current_commit = get_current_branch(repo).commit
-    for relative_path, blob_hash in current_commit.file_blob_map.items():
+    for relative_path, blob in current_commit.file_blob_map.items():
         if (repo.gitlet.parent / relative_path).exists():
             with (repo.gitlet.parent / relative_path).open() as f:
                 contents = f.read()
-            if hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest() != blob_hash:
+            if hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest() != blob.hash:
                 modified_files_with_diff[relative_path] = Diff.MODIFIED
         else:
             potentially_staged_for_removal = repo.stage / relative_path

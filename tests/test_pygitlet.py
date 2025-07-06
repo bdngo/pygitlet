@@ -135,11 +135,11 @@ def test_commit_changed_file(
     assert len(list(repo_committed.commits.iterdir())) == 3
     assert len(list(repo_committed.blobs.iterdir())) == 2
 
-    current_branch = commands.get_current_branch(repo_committed)
-    assert current_branch.commit.message == "changed a.in"
-    assert current_branch.commit.parent.message == "commit a.in"
+    current_commit = commands.get_current_branch(repo_committed).commit
+    assert current_commit.message == "changed a.in"
+    assert current_commit.parent.message == "commit a.in"
 
-    with (repo_committed.blobs / current_branch.commit.file_blob_map[temp_file1]).open(
+    with (repo_committed.blobs / current_commit.file_blob_map[temp_file1].hash).open(
         mode="rb"
     ) as f:
         changed_blob: commands.Blob = pickle.load(f)
@@ -150,7 +150,7 @@ def test_commit_removed_file(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
     current_commit = commands.get_current_branch(repo_committed).commit
-    with (repo_committed.blobs / current_commit.file_blob_map[temp_file1]).open(
+    with (repo_committed.blobs / current_commit.file_blob_map[temp_file1].hash).open(
         mode="rb"
     ) as f:
         tracked_blob: commands.Blob = pickle.load(f)
@@ -279,7 +279,7 @@ def test_log_with_reset(
     assert len(list(re.finditer(log_pattern, log))) == 2
 
 
-@pytest.mark.skip(reason="merge not implemented")
+@pytest.mark.skip(reason="merging not implemented")
 def test_log_merge_commit(
     repo_committed: commands.Repository,
     temp_file1: Path,
