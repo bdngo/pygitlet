@@ -1,7 +1,7 @@
 import dataclasses
 import hashlib
 import pickle
-from enum import Enum, auto
+from enum import StrEnum, auto
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import StringIO
@@ -14,7 +14,7 @@ from frozendict import frozendict
 from .errors import PyGitletException
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Repository:
     gitlet: Path
 
@@ -39,13 +39,13 @@ class Repository:
         return self.branches / ".current-branch"
 
 
-class Diff(Enum):
+class Diff(StrEnum):
     ADDED = auto()
-    REMOVED = auto()
-    CHANGED = auto()
+    DELETED = auto()
+    MODIFIED = auto()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Blob:
     name: Path
     contents: str
@@ -61,7 +61,7 @@ class Merge(NamedTuple):
     target: "Commit"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Commit:
     timestamp: datetime
     message: str
@@ -83,7 +83,7 @@ def write_commit(repo: Repository, commit: Commit) -> None:
         pickle.dump(commit, f)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Branch:
     name: str
     commit: Commit
@@ -143,23 +143,19 @@ def add(repo: Repository, file_path: Path) -> None:
 
     with absolute_path.open() as f:
         contents = f.read()
-    current_branch = get_current_branch(repo)
+    current_commit = get_current_branch(repo).commit
 
     blob = Blob(
         file_path,
         contents,
-        (
-            Diff.CHANGED
-            if file_path in current_branch.commit.file_blob_map
-            else Diff.ADDED
-        ),
+        (Diff.MODIFIED if file_path in current_commit.file_blob_map else Diff.ADDED),
     )
     stage_file_path = repo.stage / file_path
-    if stage_file_path.exists():
-        with stage_file_path.open(mode="rb") as f:
-            prev_blob: Blob = pickle.load(f)
-        if prev_blob.hash == blob.hash:
-            stage_file_path.unlink(missing_ok=True)
+    if (
+        file_path in current_commit.file_blob_map
+        and current_commit.file_blob_map[file_path] == blob.hash
+    ):
+        stage_file_path.unlink(missing_ok=True)
     else:
         with stage_file_path.open(mode="wb") as f:
             pickle.dump(blob, f)
@@ -175,7 +171,7 @@ def commit(repo: Repository, message: str) -> None:
     for k in repo.stage.iterdir():
         with k.open(mode="rb") as f:
             blob: Blob = pickle.load(f)
-        if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.REMOVED:
+        if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
             with (repo.blobs / blob.hash).open(mode="wb") as f:
                 pickle.dump(blob, f)
         blob_dict[blob.name] = blob.hash
@@ -203,12 +199,14 @@ def remove(repo: Repository, file_path: Path) -> None:
     ):
         raise PyGitletException("No reason to remove the file.")
 
+    stage_file_path.unlink(missing_ok=True)
+
     absolute_path = repo.gitlet.parent / file_path
     with absolute_path.open() as f:
         contents = f.read()
     current_branch = get_current_branch(repo)
 
-    blob = Blob(file_path, contents, Diff.REMOVED)
+    blob = Blob(file_path, contents, Diff.DELETED)
     with stage_file_path.open(mode="wb") as f:
         pickle.dump(blob, f)
 
@@ -230,10 +228,11 @@ def log(repo: Repository) -> str:
     log = StringIO()
     while current_commit is not None:
         log.write(format_commit(current_commit))
-        if current_commit.is_merge_commit:
-            current_commit = current_commit.parent.origin
-        else:
-            current_commit = current_commit.parent
+        current_commit = (
+            current_commit.parent.origin
+            if current_commit.is_merge_commit
+            else current_commit.parent
+        )
     log.seek(0)
     return log.read().strip()
 
@@ -258,3 +257,113 @@ def find(repo: Repository, message: str) -> str:
     if filtered_list == []:
         raise PyGitletException("Found no commit with that message.")
     return "\n".join(filtered_list)
+
+
+def branch_status(repo: Repository) -> str:
+    branch_list = []
+    for branch_path in repo.branches.iterdir():
+        if not branch_path.is_symlink():
+            with branch_path.open(mode="rb") as f:
+                branch: Branch = pickle.load(f)
+            branch_list.append(branch)
+    sorted_branch_list = sorted(branch_list, key=lambda x: x.name)
+    branch_string = "\n".join(
+        f"*{b.name}" if b.is_current else b.name for b in sorted_branch_list
+    )
+    if branch_string != "":
+        branch_string += "\n"
+    return branch_string
+
+
+def stage_status(repo: Repository) -> tuple[str, str]:
+    staged_blobs = []
+    for blob_path in repo.stage.iterdir():
+        with blob_path.open(mode="rb") as f:
+            blob: Blob = pickle.load(f)
+        staged_blobs.append(blob)
+    staged_files = "\n".join(
+        sorted(str(b.name) for b in staged_blobs if b.diff != Diff.DELETED)
+    )
+    removed_files = "\n".join(
+        sorted(str(b.name) for b in staged_blobs if b.diff == Diff.DELETED)
+    )
+    if staged_files != "":
+        staged_files += "\n"
+    if removed_files != "":
+        removed_files += "\n"
+    return staged_files, removed_files
+
+
+def modified_status(repo: Repository) -> str:
+    staged_blobs = []
+    for blob_path in repo.stage.iterdir():
+        with blob_path.open(mode="rb") as f:
+            blob: Blob = pickle.load(f)
+        staged_blobs.append(blob)
+
+    modified_files_with_diff = {}
+    current_commit = get_current_branch(repo).commit
+    for relative_path, blob_hash in current_commit.file_blob_map.items():
+        if (repo.gitlet.parent / relative_path).exists():
+            with (repo.gitlet.parent / relative_path).open() as f:
+                contents = f.read()
+            if hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest() != blob_hash:
+                modified_files_with_diff[relative_path] = Diff.MODIFIED
+        else:
+            potentially_staged_for_removal = repo.stage / relative_path
+            if not potentially_staged_for_removal.exists():
+                modified_files_with_diff[relative_path] = Diff.DELETED
+    for staged_blob in staged_blobs:
+        if staged_blob.diff == Diff.ADDED:
+            if (repo.gitlet.parent / staged_blob.name).exists():
+                with (repo.gitlet.parent / staged_blob.name).open() as f:
+                    contents = f.read()
+                if (
+                    hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest()
+                    != staged_blob.hash
+                ):
+                    modified_files_with_diff[staged_blob.name] = Diff.MODIFIED
+            else:
+                modified_files_with_diff[staged_blob.name] = Diff.DELETED
+    modified_files = "\n".join(
+        f"{path} ({tag.value})"
+        for path, tag in sorted(modified_files_with_diff.items())
+    )
+    if modified_files != "":
+        modified_files += "\n"
+    return modified_files
+
+
+def untracked_status(repo: Repository) -> str:
+    current_commit = get_current_branch(repo).commit
+    untracked_files = "\n".join(
+        f.name
+        for f in repo.gitlet.parent.iterdir()
+        if f.is_file()
+        and not (repo.stage / f.relative_to(repo.gitlet.parent)).exists()
+        and f.relative_to(repo.gitlet.parent) not in current_commit.file_blob_map
+    )
+    if untracked_files != "":
+        untracked_files += "\n"
+    return untracked_files
+
+
+def status(repo: Repository) -> str:
+    branch_string = branch_status(repo)
+    staged_files, removed_files = stage_status(repo)
+    modified_files = modified_status(repo)
+    untracked_files = untracked_status(repo)
+
+    return dedent(
+        f"""
+    === Branches ===
+    {branch_string}
+    === Staged Files ===
+    {staged_files}
+    === Removed Files ===
+    {removed_files}
+    === Modifications Not Staged For Commit ===
+    {modified_files}
+    === Untracked Files ===
+    {untracked_files}"""
+    ).strip()

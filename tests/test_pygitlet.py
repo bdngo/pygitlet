@@ -2,6 +2,7 @@ import pickle
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -81,11 +82,11 @@ def test_add(repo: commands.Repository, tmp_path: Path, temp_file1: Path) -> Non
     assert blob.diff == commands.Diff.ADDED
 
 
-def test_add_unchanged_file(repo: commands.Repository, temp_file1: Path) -> None:
-    commands.init(repo)
-    commands.add(repo, temp_file1)
-    commands.add(repo, temp_file1)
-    assert len(list(repo.stage.iterdir())) == 0
+def test_add_unchanged_file(
+    repo_committed: commands.Repository, temp_file1: Path
+) -> None:
+    commands.add(repo_committed, temp_file1)
+    assert len(list(repo_committed.stage.iterdir())) == 0
 
 
 def test_add_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
@@ -93,6 +94,13 @@ def test_add_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
 
     with pytest.raises(errors.PyGitletException, match=r"File does not exist\."):
         commands.add(repo, tmp_path / "b.in")
+
+
+def test_add_duplicate_file(
+    repo_committed: commands.Repository, temp_file1: Path
+) -> None:
+    commands.add(repo_committed, temp_file1)
+    assert len(list(repo_committed.stage.iterdir())) == 0
 
 
 def test_commit(repo: commands.Repository, temp_file1: Path) -> None:
@@ -116,15 +124,6 @@ def test_commit(repo: commands.Repository, temp_file1: Path) -> None:
     )
 
 
-def test_commit_no_duplicate_blob(
-    repo_committed: commands.Repository, temp_file1: Path
-) -> None:
-    commands.add(repo_committed, temp_file1)
-    commands.commit(repo_committed, "commit a.in again")
-    assert len(list(repo_committed.commits.iterdir())) == 3
-    assert len(list(repo_committed.blobs.iterdir())) == 1
-
-
 def test_commit_changed_file(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
@@ -144,7 +143,7 @@ def test_commit_changed_file(
         mode="rb"
     ) as f:
         changed_blob: commands.Blob = pickle.load(f)
-    assert changed_blob.diff == commands.Diff.CHANGED
+    assert changed_blob.diff == commands.Diff.MODIFIED
 
 
 def test_commit_removed_file(
@@ -155,6 +154,8 @@ def test_commit_removed_file(
         mode="rb"
     ) as f:
         tracked_blob: commands.Blob = pickle.load(f)
+    with (tmp_path / temp_file1).open(mode="w") as f:
+        f.write("b")
     commands.add(repo_committed, temp_file1)
     commands.remove(repo_committed, temp_file1)
     assert len(list(repo_committed.stage.iterdir())) == 1
@@ -162,9 +163,8 @@ def test_commit_removed_file(
     with (repo_committed.stage / temp_file1).open(mode="rb") as f:
         blob: commands.Blob = pickle.load(f)
     assert blob.name == tracked_blob.name
-    assert blob.contents == tracked_blob.contents
-    assert blob.hash == tracked_blob.hash
-    assert blob.diff == commands.Diff.REMOVED
+    assert blob.contents == "b"
+    assert blob.diff == commands.Diff.DELETED
 
 
 def test_commit_multiple_files(
@@ -199,6 +199,8 @@ def test_commit_empty_message(repo: commands.Repository, temp_file1: None) -> No
 def test_remove(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
+    with (tmp_path / temp_file1).open(mode="w") as f:
+        f.write("b")
     commands.add(repo_committed, temp_file1)
     commands.remove(repo_committed, temp_file1)
 
@@ -208,7 +210,7 @@ def test_remove(
     with (repo_committed.stage / temp_file1.name).open(mode="rb") as f:
         removed_blob: commands.Blob = pickle.load(f)
     assert removed_blob.name == temp_file1
-    assert removed_blob.diff == commands.Diff.REMOVED
+    assert removed_blob.diff == commands.Diff.DELETED
 
 
 def test_remove_missing_file(repo: commands.Repository) -> None:
@@ -343,3 +345,208 @@ def test_find_no_match(repo_committed: commands.Repository) -> None:
         errors.PyGitletException, match=r"Found no commit with that message\."
     ):
         commands.find(repo_committed, "blah")
+
+
+def test_status_empty_repo(repo: commands.Repository) -> None:
+    commands.init(repo)
+    status = commands.status(repo)
+    expected = dedent(
+        """
+    === Branches ===
+    *main
+
+    === Staged Files ===
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+@pytest.mark.skip(reason="branching not implemented")
+def test_status_multiple_branches(repo: commands.Repository) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    status = commands.status(repo)
+    expected = dedent(
+        """
+    === Branches ===
+    *main
+    new
+
+    === Staged Files ===
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+def test_status_staged_for_addition(
+    repo: commands.Repository, temp_file1: Path
+) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    status = commands.status(repo)
+    expected = dedent(
+        f"""
+    === Branches ===
+    *main
+
+    === Staged Files ===
+    {temp_file1.name}
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+def test_status_staged_for_removal(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    with (tmp_path / temp_file1).open(mode="w") as f:
+        f.write("b")
+    commands.add(repo_committed, temp_file1)
+    commands.remove(repo_committed, temp_file1)
+    status = commands.status(repo_committed)
+    expected = dedent(
+        f"""
+    === Branches ===
+    *main
+
+    === Staged Files ===
+
+    === Removed Files ===
+    {temp_file1.name}
+
+    === Modifications Not Staged For Commit ===
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+def test_status_modified_unstaged(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    with (tmp_path / temp_file1).open(mode="w") as f:
+        f.write("b")
+    status = commands.status(repo_committed)
+    expected = dedent(
+        f"""
+    === Branches ===
+    *main
+
+    === Staged Files ===
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+    {temp_file1.name} (modified)
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+def test_status_deleted_unstaged(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    (tmp_path / temp_file1).unlink()
+    status = commands.status(repo_committed)
+    expected = dedent(
+        f"""
+    === Branches ===
+    *main
+
+    === Staged Files ===
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+    {temp_file1.name} (deleted)
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+def test_status_modified_staged(
+    repo: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    with (tmp_path / temp_file1).open(mode="w") as f:
+        f.write("b")
+    status = commands.status(repo)
+    expected = dedent(
+        f"""
+    === Branches ===
+    *main
+
+    === Staged Files ===
+    {temp_file1.name}
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+    {temp_file1.name} (modified)
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+def test_status_deleted_staged(
+    repo: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    commands.init(repo)
+    commands.add(repo, temp_file1)
+    (tmp_path / temp_file1).unlink()
+    status = commands.status(repo)
+    expected = dedent(
+        f"""
+    === Branches ===
+    *main
+
+    === Staged Files ===
+    {temp_file1.name}
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+    {temp_file1.name} (deleted)
+
+    === Untracked Files ==="""
+    ).strip()
+    assert status == expected
+
+
+def test_status_untracked(repo: commands.Repository, temp_file1: Path) -> None:
+    commands.init(repo)
+    status = commands.status(repo)
+    expected = dedent(
+        f"""
+    === Branches ===
+    *main
+
+    === Staged Files ===
+
+    === Removed Files ===
+
+    === Modifications Not Staged For Commit ===
+
+    === Untracked Files ===
+    {temp_file1.name}"""
+    ).strip()
+    assert status == expected
