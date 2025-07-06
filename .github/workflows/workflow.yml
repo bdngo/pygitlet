@@ -52,9 +52,8 @@ jobs:
         run: uv sync --locked --all-extras --dev
 
       - name: Build HTML
-        run: |
-          cd docs/
-          uv run make html
+        working-directory: ./docs/
+        run: uv run make html
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
