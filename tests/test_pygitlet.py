@@ -571,7 +571,7 @@ def test_checkout_file(
     assert contents == tracked_contents
 
 
-def test_checkout_untracked_file(
+def test_checkout_file_untracked(
     repo_committed: commands.Repository,
     temp_file2: Path,
 ) -> None:
@@ -628,7 +628,7 @@ def test_checkout_commit_multiple_commits(
     assert contents == "b"
 
 
-def test_checkout_untracked_file(
+def test_checkout_commit_untracked(
     repo_committed: commands.Repository,
     temp_file2: Path,
 ) -> None:
@@ -639,7 +639,7 @@ def test_checkout_untracked_file(
         commands.checkout_commit(repo_committed, current_commit.hash, temp_file2)
 
 
-def test_checkout_bad_commit_id(
+def test_checkout_commit_bad_id(
     repo_committed: commands.Repository,
     temp_file1: Path,
 ) -> None:
