@@ -667,9 +667,57 @@ def branch(repo: Repository, branch_name: str) -> None:
     write_branch(repo, new_branch)
 
 
-def remove_branch(repo: Repository, branch_name: str):
+def remove_branch(repo: Repository, branch_name: str) -> None:
+    """
+    Deletes a branch.
+
+    Args:
+        repo: PyGitlet repository.
+        branch_name: Branch to delete.
+
+    Raises:
+        PyGitletException: If the branch either doesn't exist or is the current working branch.
+    """
     if not (repo.branches / branch_name).exists():
         raise PyGitletException("A branch with that name does not exist.")
     if get_current_branch(repo).name == branch_name:
         raise PyGitletException("Cannot remove the current branch.")
     (repo.branches / branch_name).unlink()
+
+
+def reset(repo: Repository, commit_id: str) -> None:
+    """
+    Resets the working directory to a given commit ID.
+
+    Args:
+        repo: PyGitlet repository.
+        commit_id: SHA-1 hash (or substring thereof) of commit.
+
+    Raises:
+        PyGitletException: If the commit ID doesn't exist or if the reset would overwrite any untracked files.
+    """
+    if not (repo.commits / commit_id).exists():
+        raise PyGitletException("No commit with that id exists.")
+
+    current_commit = get_current_branch(repo).commit
+    for old_file_name, blob in current_commit.file_blob_map.items():
+        absolute_path = repo.gitlet.parent / old_file_name
+        if blob.hash != hash_contents(absolute_path.read_text()):
+            raise PyGitletException(
+                "There is an untracked file in the way; delete it, or add and commit it first."
+            )
+        if old_file_name not in current_commit.file_blob_map:
+            absolute_path.unlink()
+
+    with (repo.commits / commit_id).open(mode="rb") as f:
+        target_commit: Commit = pickle.load(f)
+    for file_name, blob in target_commit.file_blob_map.items():
+        absolute_path = repo.gitlet.parent / file_name
+        absolute_path.write_text(blob.contents)
+
+    for staged_file in repo.stage.iterdir():
+        if staged_file.is_file():
+            staged_file.unlink()
+
+    moved_branch = dataclasses.replace(get_current_branch(repo), commit=target_commit)
+    write_branch(repo, moved_branch)
