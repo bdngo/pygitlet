@@ -236,8 +236,7 @@ def add(repo: Repository, file_path: Path) -> None:
     if not absolute_path.exists():
         raise PyGitletException("File does not exist.")
 
-    with absolute_path.open() as f:
-        contents = f.read()
+    contents = absolute_path.read_text()
     current_commit = get_current_branch(repo).commit
 
     blob = Blob(
@@ -317,8 +316,7 @@ def remove(repo: Repository, file_path: Path) -> None:
     stage_file_path.unlink(missing_ok=True)
 
     absolute_path = repo.gitlet.parent / file_path
-    with absolute_path.open() as f:
-        contents = f.read()
+    contents = absolute_path.read_text()
     current_branch = get_current_branch(repo)
 
     blob = Blob(file_path, contents, Diff.DELETED)
@@ -487,8 +485,7 @@ def modified_status(repo: Repository) -> str:
     current_commit = get_current_branch(repo).commit
     for relative_path, blob in current_commit.file_blob_map.items():
         if (repo.gitlet.parent / relative_path).exists():
-            with (repo.gitlet.parent / relative_path).open() as f:
-                contents = f.read()
+            contents = (repo.gitlet.parent / relative_path).read_text()
             if hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest() != blob.hash:
                 modified_files_with_diff[relative_path] = Diff.MODIFIED
         else:
@@ -498,8 +495,7 @@ def modified_status(repo: Repository) -> str:
     for staged_blob in staged_blobs:
         if staged_blob.diff == Diff.ADDED:
             if (repo.gitlet.parent / staged_blob.name).exists():
-                with (repo.gitlet.parent / staged_blob.name).open() as f:
-                    contents = f.read()
+                contents = (repo.gitlet.parent / staged_blob.name).read_text()
                 if (
                     hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest()
                     != staged_blob.hash
@@ -563,3 +559,46 @@ def status(repo: Repository) -> str:
             f"=== Untracked Files ===\n{untracked_files}",
         ]
     ).strip()
+
+
+def checkout_file(repo: Repository, file_path: Path) -> None:
+    """
+    Checks out a file from the head commit, overwriting the working version.
+
+    Args:
+        repo: PyGitlet repository.
+        file_path: Relative path to file to check out.
+
+    Raises:
+        PyGitletException: If the file is not tracked by the current commit.
+    """
+    current_commit = get_current_branch(repo).commit
+    if file_path not in current_commit.file_blob_map:
+        raise PyGitletException("File does not exist in that commit.")
+    file_blob = current_commit.file_blob_map[file_path]
+    (repo.gitlet.parent / file_path).write_text(file_blob.contents)
+
+
+def checkout_commit(repo: Repository, commit_id: str, file_path: Path) -> None:
+    """
+    Checkouts a file from a given commit ID, overwriting the working version.
+
+    Args:
+        repo: PyGitlet repository.
+        commit_id: SHA-1 hash (or substring thereof) of commit to check out from.
+        file_path: Relative path of file to check out.
+
+    Raises:
+        PyGitletException: If the commit ID does not exist or the file is not tracked by the desired commit.
+    """
+    commit_glob = repo.commits.glob(f"{commit_id}*")
+    try:
+        with next(commit_glob).open(mode="rb") as f:
+            found_commit: Commit = pickle.load(f)
+    except StopIteration:
+        raise PyGitletException("No commit with that id exists.")
+
+    if file_path not in found_commit.file_blob_map:
+        raise PyGitletException("File does not exist in that commit.")
+    file_blob = found_commit.file_blob_map[file_path]
+    (repo.gitlet.parent / file_path).write_text(file_blob.contents)

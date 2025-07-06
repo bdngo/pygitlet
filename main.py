@@ -34,6 +34,12 @@ def main() -> None:
     subparsers.add_parser("global-log", description="Log of all commits")
     subparsers.add_parser("status", description="Status of repository")
 
+    parser_checkout = subparsers.add_parser(
+        "checkout", description="Checkout files, commits, or branches"
+    )
+    parser_checkout.add_argument("target", nargs="?")
+    parser_checkout.add_argument("file")
+
     args = parser.parse_args()
     repo = commands.Repository(Path.cwd() / ".gitlet")
     try:
@@ -52,6 +58,16 @@ def main() -> None:
                 print(commands.global_log(repo))
             case "status":
                 print(commands.status(repo))
+            case "checkout":
+                match [args.target, args.files]:
+                    case [None, file]:
+                        commands.checkout_file(repo, file)
+                    case [commit_id, file]:
+                        commands.checkout_commit(repo, commit_id, file)
+                    case [branch, None]:
+                        commands.checkout_branch(repo, branch)
+                    case _:
+                        raise errors.PyGitletException("Unreachable checkout syntax")
             case _:
                 raise errors.PyGitletException("No command with that name exists.")
     except errors.PyGitletException as e:

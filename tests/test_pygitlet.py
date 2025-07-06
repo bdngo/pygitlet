@@ -16,15 +16,13 @@ def repo(tmp_path: Path) -> commands.Repository:
 
 @pytest.fixture
 def temp_file1(tmp_path: Path) -> Path:
-    with (tmp_path / "a.in").open(mode="w") as f:
-        f.write("a")
+    (tmp_path / "a.in").write_text("a")
     return Path("a.in")
 
 
 @pytest.fixture
 def temp_file2(tmp_path: Path) -> Path:
-    with (tmp_path / "b.in").open(mode="w") as f:
-        f.write("b")
+    (tmp_path / "b.in").write_text("b")
     return Path("b.in")
 
 
@@ -74,8 +72,7 @@ def test_add(repo: commands.Repository, tmp_path: Path, temp_file1: Path) -> Non
     assert (repo.stage / temp_file1.name).exists()
     with (repo.stage / temp_file1.name).open(mode="rb") as f:
         blob: commands.Blob = pickle.load(f)
-    with (tmp_path / temp_file1).open() as f:
-        contents = f.read()
+    contents = (tmp_path / temp_file1).read_text()
 
     assert blob.name == temp_file1
     assert blob.contents == contents
@@ -139,8 +136,7 @@ def test_commit(repo: commands.Repository, temp_file1: Path) -> None:
 def test_commit_changed_file(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
-    with (tmp_path / temp_file1).open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "changed a.in")
 
@@ -166,8 +162,7 @@ def test_commit_removed_file(
         mode="rb"
     ) as f:
         tracked_blob: commands.Blob = pickle.load(f)
-    with (tmp_path / temp_file1).open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
     commands.remove(repo_committed, temp_file1)
     assert len(list(repo_committed.stage.iterdir())) == 1
@@ -211,8 +206,7 @@ def test_commit_empty_message(repo: commands.Repository, temp_file1: None) -> No
 def test_remove(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
-    with (tmp_path / temp_file1).open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
     commands.remove(repo_committed, temp_file1)
 
@@ -258,12 +252,14 @@ def test_log_with_commit(
 
 @pytest.mark.skip(reason="branching not implmented")
 def test_log_only_current_head(
-    repo_committed: commands.Repository, temp_file1: Path, log_pattern: re.Pattern
+    repo_committed: commands.Repository,
+    tmp_path: Path,
+    temp_file1: Path,
+    log_pattern: re.Pattern,
 ) -> None:
     commands.branch("new")
     commands.checkout("new")
-    with temp_file1.open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "commit on new branch")
     commands.add(repo_committed, temp_file1)
@@ -278,10 +274,12 @@ def test_log_only_current_head(
 
 @pytest.mark.skip(reason="resetting not implemented")
 def test_log_with_reset(
-    repo_committed: commands.Repository, temp_file1: Path, log_pattern: re.Pattern
+    repo_committed: commands.Repository,
+    tmp_path: Path,
+    temp_file1: Path,
+    log_pattern: re.Pattern,
 ) -> None:
-    with temp_file1.open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commit_hash = commands.get_current_branch(repo_committed).commit.hash
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "changed a.in")
@@ -294,14 +292,14 @@ def test_log_with_reset(
 @pytest.mark.skip(reason="merging not implemented")
 def test_log_merge_commit(
     repo_committed: commands.Repository,
+    tmp_path: Path,
     temp_file1: Path,
     log_pattern: re.Pattern,
     merge_log_pattern: re.Pattern,
 ) -> None:
     commands.branch("new")
     commands.checkout("new")
-    with temp_file1.open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "commit on new branch")
     commands.checkout("main")
@@ -330,10 +328,12 @@ def test_global_log_single_branch(
 
 @pytest.mark.skip(reason="resetting not implemented")
 def test_global_log_with_reset(
-    repo_committed: commands.Repository, temp_file1: Path, log_pattern: re.Pattern
+    repo_committed: commands.Repository,
+    tmp_path: Path,
+    temp_file1: Path,
+    log_pattern: re.Pattern,
 ) -> None:
-    with temp_file1.open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commit_hash = commands.get_current_branch(repo_committed).commit.hash
     commands.add(repo_committed, temp_file1)
     commands.commit(repo_committed, "changed a.in")
@@ -426,8 +426,7 @@ def test_status_staged_for_addition(
 def test_status_staged_for_removal(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
-    with (tmp_path / temp_file1).open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     commands.add(repo_committed, temp_file1)
     commands.remove(repo_committed, temp_file1)
     status = commands.status(repo_committed)
@@ -451,8 +450,7 @@ def test_status_staged_for_removal(
 def test_status_modified_unstaged(
     repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
 ) -> None:
-    with (tmp_path / temp_file1).open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     status = commands.status(repo_committed)
     expected = dedent(
         f"""
@@ -498,8 +496,7 @@ def test_status_modified_staged(
 ) -> None:
     commands.init(repo)
     commands.add(repo, temp_file1)
-    with (tmp_path / temp_file1).open(mode="w") as f:
-        f.write("b")
+    (tmp_path / temp_file1).write_text("b")
     status = commands.status(repo)
     expected = dedent(
         f"""
@@ -562,3 +559,91 @@ def test_status_untracked(repo: commands.Repository, temp_file1: Path) -> None:
     {temp_file1.name}"""
     ).strip()
     assert status == expected
+
+
+def test_checkout_file(
+    repo_committed: commands.Repository, tmp_path: Path, temp_file1: Path
+) -> None:
+    tracked_contents = (tmp_path / temp_file1).read_text()
+    (tmp_path / temp_file1).write_text("b")
+    commands.checkout_file(repo_committed, temp_file1)
+    contents = (tmp_path / temp_file1).read_text()
+    assert contents == tracked_contents
+
+
+def test_checkout_untracked_file(
+    repo_committed: commands.Repository,
+    temp_file2: Path,
+) -> None:
+    with pytest.raises(
+        errors.PyGitletException, match=r"File does not exist in that commit\."
+    ):
+        commands.checkout_file(repo_committed, temp_file2)
+
+
+def test_checkout_commit_one_commit(
+    repo_committed: commands.Repository,
+    tmp_path: Path,
+    temp_file1: Path,
+) -> None:
+    tracked_contents = (tmp_path / temp_file1).read_text()
+    (tmp_path / temp_file1).write_text("b")
+    current_commit = commands.get_current_branch(repo_committed).commit
+    commands.checkout_commit(repo_committed, current_commit.hash, temp_file1)
+    contents = (tmp_path / temp_file1).read_text()
+    assert contents == tracked_contents
+
+
+def test_checkout_commit_substring_hash(
+    repo_committed: commands.Repository,
+    tmp_path: Path,
+    temp_file1: Path,
+) -> None:
+    tracked_contents = (tmp_path / temp_file1).read_text()
+    (tmp_path / temp_file1).write_text("b")
+    current_commit = commands.get_current_branch(repo_committed).commit
+    commands.checkout_commit(repo_committed, current_commit.hash[:7], temp_file1)
+    contents = (tmp_path / temp_file1).read_text()
+    assert contents == tracked_contents
+
+
+def test_checkout_commit_multiple_commits(
+    repo_committed: commands.Repository,
+    tmp_path: Path,
+    temp_file1: Path,
+) -> None:
+    tracked_contents = (tmp_path / temp_file1).read_text()
+    (tmp_path / temp_file1).write_text("b")
+    commands.add(repo_committed, temp_file1)
+    commands.commit(repo_committed, "changed a.in")
+
+    current_commit = commands.get_current_branch(repo_committed).commit
+    parent_commit = current_commit.parent
+    commands.checkout_commit(repo_committed, parent_commit.hash, temp_file1)
+    contents = (tmp_path / temp_file1).read_text()
+    assert contents == tracked_contents
+
+    commands.checkout_commit(repo_committed, current_commit.hash, temp_file1)
+    contents = (tmp_path / temp_file1).read_text()
+    assert contents == "b"
+
+
+def test_checkout_untracked_file(
+    repo_committed: commands.Repository,
+    temp_file2: Path,
+) -> None:
+    with pytest.raises(
+        errors.PyGitletException, match=r"File does not exist in that commit\."
+    ):
+        current_commit = commands.get_current_branch(repo_committed).commit
+        commands.checkout_commit(repo_committed, current_commit.hash, temp_file2)
+
+
+def test_checkout_bad_commit_id(
+    repo_committed: commands.Repository,
+    temp_file1: Path,
+) -> None:
+    with pytest.raises(
+        errors.PyGitletException, match=r"No commit with that id exists\."
+    ):
+        commands.checkout_commit(repo_committed, "foobar", temp_file1)
