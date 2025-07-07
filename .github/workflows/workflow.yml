@@ -29,7 +29,6 @@ jobs:
 
       - name: Run mypy
         run: uv run mypy pygitlet
-        continue-on-error: true
 
       - name: Run tests
         run: uv run pytest --cov

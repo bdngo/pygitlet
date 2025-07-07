@@ -131,8 +131,9 @@ def test_commit(repo: commands.Repository, tmp_file1: Path) -> None:
 
     current_branch = commands.get_current_branch(repo)
     assert current_branch.commit.message == message
-    assert current_branch.commit.parent == commands.Commit(
-        datetime.fromtimestamp(0, tz=timezone.utc).astimezone(), "initial commit", None
+    assert current_branch.commit.parents[0] == commands.Commit(
+        datetime.fromtimestamp(0, tz=timezone.utc).astimezone(),
+        "initial commit",
     )
 
 
@@ -148,7 +149,7 @@ def test_commit_changed_file(
 
     current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
     assert current_commit.message == "changed a.in"
-    assert current_commit.parent.message == "commit a.in"
+    assert current_commit.parents[0].message == "commit a.in"
 
     with (
         repo_commit_tmp_file1.blobs / current_commit.file_blob_map[tmp_file1].hash
@@ -639,7 +640,7 @@ def test_checkout_commit_multiple_commits(
     commands.commit(repo_commit_tmp_file1, "changed a.in")
 
     current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    parent_commit = current_commit.parent
+    parent_commit = current_commit.parents[0]
     commands.checkout_commit(repo_commit_tmp_file1, parent_commit.hash, tmp_file1)
     contents = (tmp_path / tmp_file1).read_text()
     assert contents == tracked_contents
@@ -713,12 +714,13 @@ def test_checkout_overwrite_untracked_file(
     commands.add(repo, tmp_file2)
     commands.commit(repo, "commit two files")
 
+    commands.checkout_branch(repo, "new")
     (tmp_path / tmp_file1).write_text("b")
     with pytest.raises(
         errors.PyGitletException,
         match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
     ):
-        commands.checkout_branch(repo, "new")
+        commands.checkout_branch(repo, "main")
 
 
 def test_checkout_branch_empty_stage(
@@ -819,8 +821,15 @@ def test_reset_overwrite_untracked_file(
     commands.add(repo, tmp_file2)
     commands.commit(repo, "commit two files")
 
+    commands.branch(repo, "new")
+    (tmp_path / "c.in").write_text("c")
+    commands.add(repo, "c.in")
+    commands.remove(repo, tmp_file2)
+    commands.commit(repo, "add c.in, remove b.in")
     current_commit = commands.get_current_branch(repo).commit
-    (tmp_path / tmp_file1).write_text("b")
+
+    commands.checkout_branch(repo, "new")
+    (tmp_path / "c.in").write_text("d")
     with pytest.raises(
         errors.PyGitletException,
         match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
@@ -842,3 +851,150 @@ def test_reset_empty_stage(
     commands.add(repo_commit_tmp_file1, tmp_file2)
     commands.reset(repo_commit_tmp_file1, current_commit.hash)
     assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 0
+
+
+def test_merge(
+    repo: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in")
+    main_commit = commands.get_current_branch(repo).commit
+
+    commands.checkout_branch(repo, "new")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "commit b.in on new branch")
+    new_commit = commands.get_current_branch(repo).commit
+
+    commands.checkout_branch(repo, "main")
+    commands.merge(repo, "new")
+
+    merge_commit = commands.get_current_branch(repo).commit
+    assert merge_commit.parents == [main_commit, new_commit]
+    assert (
+        tmp_file1 in merge_commit.file_blob_map
+        and tmp_file2 in merge_commit.file_blob_map
+    )
+
+
+def test_merge_nonexistent(
+    repo: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in")
+
+    commands.checkout_branch(repo, "new")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "commit b.in on new branch")
+
+    commands.checkout_branch(repo, "main")
+    with pytest.raises(
+        errors.PyGitletException,
+        match=r"A branch with that name does not exist\.",
+    ):
+        commands.merge(repo, "foo")
+
+
+def test_merge_nonempty_stage(
+    repo: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in")
+
+    commands.checkout_branch(repo, "new")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "commit b.in on new branch")
+
+    commands.checkout_branch(repo, "main")
+    (tmp_path / tmp_file1).write_text("b")
+    commands.add(repo, tmp_file1)
+
+    with pytest.raises(
+        errors.PyGitletException, match=r"You have uncommitted changes\."
+    ):
+        commands.merge(repo, "new")
+
+
+def test_merge_self(
+    repo_commit_tmp_file1: commands.Repository,
+) -> None:
+    with pytest.raises(
+        errors.PyGitletException, match=r"Cannot merge a branch with itself\."
+    ):
+        commands.merge(repo_commit_tmp_file1, "main")
+
+
+def test_merge_untracked_file(
+    repo: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in")
+
+    commands.checkout_branch(repo, "new")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "commit b.in on new branch")
+
+    commands.checkout_branch(repo, "main")
+    (tmp_path / tmp_file1).write_text("b")
+
+    with pytest.raises(
+        errors.PyGitletException,
+        match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
+    ):
+        commands.merge(repo, "new")
+
+
+def test_merge_criss_cross(
+    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in on main")
+
+    commands.checkout_branch(repo, "new")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "commit b.in on new")
+    commands.branch(repo, "temp")
+    commands.merge(repo, "main")
+
+    commands.checkout_branch(repo, "main")
+    (tmp_path / tmp_file1).write_text("b")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "changed a.in on main")
+    commands.merge(repo, "temp")
+
+    (tmp_path / tmp_file2).write_text("a")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "changed b.in on main")
+
+    commands.checkout_branch(repo, "new")
+    (tmp_path / "c.in").write_text("c")
+    commands.add(repo, "c.in")
+    commands.commit(repo, "added c.in on new")
+
+    commands.checkout_branch(repo, "main")
+    commands.merge(repo, "new")
+
+    assert (tmp_path / tmp_file1).read_text() == "b"
+    assert (tmp_path / tmp_file2).read_text() == "a"
+    assert (tmp_path / "c.in").read_text() == "c"

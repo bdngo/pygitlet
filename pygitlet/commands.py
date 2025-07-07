@@ -1,13 +1,16 @@
+"""Commands for PyGitlet."""
+
 import dataclasses
 import hashlib
 import pickle
+import queue
 from enum import StrEnum, auto
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from textwrap import dedent
-from typing import NamedTuple, Self
+from typing import Generator, Self
 
 from frozendict import frozendict
 
@@ -74,15 +77,6 @@ class Blob:
         return hash_contents(self.contents)
 
 
-class Merge(NamedTuple):
-    """
-    Simple tuple for merge commits (i.e. two parents).
-    """
-
-    origin: "Commit"
-    target: "Commit"
-
-
 @dataclass(frozen=True, slots=True)
 class Commit:
     """
@@ -92,7 +86,7 @@ class Commit:
 
     timestamp: datetime
     message: str
-    parent: Self | Merge | None
+    parents: list[Self] = field(default_factory=list)
     file_blob_map: frozendict[Path, Blob] = field(default_factory=frozendict)
 
     @property
@@ -103,7 +97,7 @@ class Commit:
 
     @property
     def is_merge_commit(self) -> bool:
-        return isinstance(self.parent, Merge)
+        return len(self.parents) > 1
 
 
 def write_commit(repo: Repository, commit: Commit) -> None:
@@ -204,7 +198,7 @@ def init(repo: Repository) -> None:
     repo.branches.mkdir()
 
     aware_unix_epoch = datetime.fromtimestamp(0, tz=timezone.utc).astimezone()
-    init_commit = Commit(aware_unix_epoch, "initial commit", None)
+    init_commit = Commit(aware_unix_epoch, "initial commit")
     init_branch = Branch("main", init_commit, True)
 
     write_branch(repo, init_branch)
@@ -275,22 +269,22 @@ def commit(repo: Repository, message: str) -> None:
     elif message == "":
         raise PyGitletException("Please enter a commit message.")
 
-    blob_dict = {}
+    current_branch = get_current_branch(repo)
+    blob_dict = current_branch.commit.file_blob_map
     for k in repo.stage.iterdir():
         with k.open(mode="rb") as f:
             blob: Blob = pickle.load(f)
         if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
             with (repo.blobs / blob.hash).open(mode="wb") as f:
                 pickle.dump(blob, f)
-        blob_dict[blob.name] = blob
+        blob_dict = blob_dict.set(blob.name, blob)
         k.unlink()
 
-    current_branch = get_current_branch(repo)
     commit = Commit(
         datetime.now().astimezone(),
         message,
-        current_branch.commit,
-        file_blob_map=frozendict(blob_dict),
+        [current_branch.commit],
+        file_blob_map=blob_dict,
     )
     write_commit(repo, commit)
 
@@ -345,7 +339,7 @@ def format_commit(commit: Commit) -> str:
     """
     timestamp_formatted = commit.timestamp.strftime("%a %b %-d %X %Y %z")
     if commit.is_merge_commit:
-        message = f"===\ncommit {commit.hash}\nMerge: {commit.parent.origin.hash[:7]} {commit.parent.target.hash[:7]}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
+        message = f"===\ncommit {commit.hash}\nMerge: {commit.parents[0].hash[:7]} {commit.parents[1].hash[:7]}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
     else:
         message = f"===\ncommit {commit.hash}\nDate: {timestamp_formatted}\n{commit.message}\n\n"
     return message
@@ -364,13 +358,12 @@ def log(repo: Repository) -> str:
     """
     current_commit = get_current_branch(repo).commit
     log = StringIO()
-    while current_commit is not None:
+    while True:
         log.write(format_commit(current_commit))
-        current_commit = (
-            current_commit.parent.origin
-            if current_commit.is_merge_commit
-            else current_commit.parent
-        )
+        if current_commit.parents != []:
+            current_commit = current_commit.parents[0]
+        else:
+            break
     log.seek(0)
     return log.read().strip()
 
@@ -626,18 +619,22 @@ def checkout_branch(repo: Repository, branch_name: str) -> None:
 
     with (repo.branches / branch_name).open(mode="rb") as f:
         target_branch: Branch = pickle.load(f)
-    for old_file_name, blob in current_branch.commit.file_blob_map.items():
-        absolute_path = repo.gitlet.parent / old_file_name
-        if blob.hash != hash_contents(absolute_path.read_text()):
-            raise PyGitletException(
-                "There is an untracked file in the way; delete it, or add and commit it first."
-            )
-        if old_file_name not in target_branch.commit.file_blob_map:
-            absolute_path.unlink()
 
     for file_name, blob in target_branch.commit.file_blob_map.items():
         absolute_path = repo.gitlet.parent / file_name
+        if (
+            absolute_path.exists()
+            and file_name not in current_branch.commit.file_blob_map
+        ):
+            raise PyGitletException(
+                "There is an untracked file in the way; delete it, or add and commit it first."
+            )
         absolute_path.write_text(blob.contents)
+
+    for old_file_name, blob in current_branch.commit.file_blob_map.items():
+        absolute_path = repo.gitlet.parent / old_file_name
+        if old_file_name not in target_branch.commit.file_blob_map:
+            absolute_path.unlink()
 
     for staged_file in repo.stage.iterdir():
         if staged_file.is_file():
@@ -700,20 +697,21 @@ def reset(repo: Repository, commit_id: str) -> None:
         raise PyGitletException("No commit with that id exists.")
 
     current_commit = get_current_branch(repo).commit
-    for old_file_name, blob in current_commit.file_blob_map.items():
-        absolute_path = repo.gitlet.parent / old_file_name
-        if blob.hash != hash_contents(absolute_path.read_text()):
+    with (repo.commits / commit_id).open(mode="rb") as f:
+        target_commit: Commit = pickle.load(f)
+
+    for file_name, blob in target_commit.file_blob_map.items():
+        absolute_path = repo.gitlet.parent / file_name
+        if absolute_path.exists() and file_name not in current_commit.file_blob_map:
             raise PyGitletException(
                 "There is an untracked file in the way; delete it, or add and commit it first."
             )
+        absolute_path.write_text(blob.contents)
+
+    for old_file_name, blob in current_commit.file_blob_map.items():
+        absolute_path = repo.gitlet.parent / old_file_name
         if old_file_name not in current_commit.file_blob_map:
             absolute_path.unlink()
-
-    with (repo.commits / commit_id).open(mode="rb") as f:
-        target_commit: Commit = pickle.load(f)
-    for file_name, blob in target_commit.file_blob_map.items():
-        absolute_path = repo.gitlet.parent / file_name
-        absolute_path.write_text(blob.contents)
 
     for staged_file in repo.stage.iterdir():
         if staged_file.is_file():
@@ -721,3 +719,96 @@ def reset(repo: Repository, commit_id: str) -> None:
 
     moved_branch = dataclasses.replace(get_current_branch(repo), commit=target_commit)
     write_branch(repo, moved_branch)
+
+
+def commit_history(commit: Commit) -> list[Commit]:
+    """
+    Tracks the entire history of a commit using the topological sort of its DAG.
+
+    Args:
+        commit: Commit to start tracking history from.
+
+    Returns:
+        List of commits in ascending topological sort.
+    """
+    commit_bfs = []
+    commit_queue: queue.SimpleQueue[Commit] = queue.SimpleQueue()
+    commit_queue.put(commit)
+    while not commit_queue.empty():
+        current_commit = commit_queue.get()
+        if current_commit not in commit_bfs:
+            commit_bfs.append(current_commit)
+            for parent in current_commit.parents:
+                if commit_bfs not in commit_bfs:
+                    commit_queue.put(parent)
+    return commit_bfs
+
+
+def latest_common_ancestor(repo: Repository, origin: Commit, target: Commit) -> Commit:
+    """
+    Finds the latest common ancestor (i.e. split point) for two commits.
+
+    Args:
+        origin: Current commit.
+        target: Commit to be merged.
+
+    Returns:
+        The latest commit to which two commits share the same parent.
+        If multiple commits qualify, then ties are broken by distance to current commit.
+    """
+    origin_history = commit_history(origin)
+    target_history = commit_history(target)
+
+    # join commits at root to find last shared commit
+    reversed_joined_history = zip(reversed(origin_history), reversed(target_history))
+
+    # keep shared commits, take last one
+    lca = [c1 for (c1, c2) in reversed_joined_history if c1 == c2][-1]
+    return lca
+
+
+def merge(repo: Repository, target_branch_name: str) -> None:
+    """
+    Merges the target branch into the current branch.
+
+    Args:
+        repo: PyGitlet repository.
+        target_branch: Name of branch to merge into the current branch.
+
+    Raises:
+        PyGitletException: If the stage is nonempty, target branch doesn't exist, is itself, or if there are uncommitted changes.
+    """
+    if len(list(repo.stage.iterdir())) != 0:
+        raise PyGitletException("You have uncommitted changes.")
+    if not (repo.branches / target_branch_name).exists():
+        raise PyGitletException("A branch with that name does not exist.")
+    if get_current_branch(repo).name == target_branch_name:
+        raise PyGitletException("Cannot merge a branch with itself.")
+
+    with (repo.branches / target_branch_name).open(mode="rb") as f:
+        target_branch: Branch = pickle.load(f)
+    origin_branch_commit = get_current_branch(repo).commit
+    target_branch_commit = target_branch.commit
+    lca = latest_common_ancestor(repo, origin_branch_commit, target_branch_commit)
+
+    for file_name, blob in target_branch_commit.file_blob_map:
+        absolute_path = repo.gitlet.parent / file_name
+        if (
+            absolute_path.exists()
+            and file_name not in origin_branch_commit.file_blob_map
+        ):
+            raise PyGitletException(
+                "There is an untracked file in the way; delete it, or add and commit it first."
+            )
+
+    for file_name, blob in lca.file_blob_map:
+        if (
+            file_name in target_branch_commit.file_blob_map
+            and target_branch_commit.file_blob_map[file_name].hash != blob.hash
+            and file_name in origin_branch_commit.file_blob_map
+            and origin_branch_commit.file_blob_map[file_name].hash == blob.hash
+        ):
+            ...
+    raise NotImplementedError
+    # for file_name, blob in target_branch_commit.file_blob_map:
+    #     if file_name not in lca.file_blob_map:
