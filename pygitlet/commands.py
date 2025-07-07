@@ -277,7 +277,10 @@ def commit(repo: Repository, message: str) -> None:
         if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
             with (repo.blobs / blob.hash).open(mode="wb") as f:
                 pickle.dump(blob, f)
-        blob_dict = blob_dict.set(blob.name, blob)
+        if blob.diff != Diff.DELETED:
+            blob_dict = blob_dict.set(blob.name, blob)
+        else:
+            blob_dict = blob_dict.delete(blob.name)
         k.unlink()
 
     commit = Commit(
@@ -767,6 +770,20 @@ def latest_common_ancestor(repo: Repository, origin: Commit, target: Commit) -> 
     return lca
 
 
+def generate_conflict(origin: str, target: str) -> str:
+    """
+    Creates a version of the a file with conflicts.
+
+    Args:
+        origin: Contents of file in the current branch.
+        target: Contents of file in the given branch.
+
+    Returns:
+        New file with conflicts shown.
+    """
+    return f"<<<<<<< HEAD\n{origin}=======\n{target}>>>>>>>\n"
+
+
 def merge(repo: Repository, target_branch_name: str) -> None:
     """
     Merges the target branch into the current branch.
@@ -790,8 +807,18 @@ def merge(repo: Repository, target_branch_name: str) -> None:
     origin_branch_commit = get_current_branch(repo).commit
     target_branch_commit = target_branch.commit
     lca = latest_common_ancestor(repo, origin_branch_commit, target_branch_commit)
+    if lca == target_branch_commit:
+        print("Given branch is an ancestor of the current branch.")
+        return
+    elif lca == origin_branch_commit:
+        checkout_branch(repo, target_branch.name)
+        print("Current branch fast-forwarded.")
+        return
 
-    for file_name, blob in target_branch_commit.file_blob_map:
+    conflicted = False
+    origin_blob_map = origin_branch_commit.file_blob_map
+    target_blob_map = target_branch_commit.file_blob_map
+    for file_name, blob in target_blob_map.items():
         absolute_path = repo.gitlet.parent / file_name
         if (
             absolute_path.exists()
@@ -801,14 +828,113 @@ def merge(repo: Repository, target_branch_name: str) -> None:
                 "There is an untracked file in the way; delete it, or add and commit it first."
             )
 
-    for file_name, blob in lca.file_blob_map:
-        if (
-            file_name in target_branch_commit.file_blob_map
-            and target_branch_commit.file_blob_map[file_name].hash != blob.hash
-            and file_name in origin_branch_commit.file_blob_map
-            and origin_branch_commit.file_blob_map[file_name].hash == blob.hash
-        ):
-            ...
-    raise NotImplementedError
-    # for file_name, blob in target_branch_commit.file_blob_map:
-    #     if file_name not in lca.file_blob_map:
+        if file_name not in lca.file_blob_map:
+            if (
+                file_name in origin_blob_map
+                and origin_blob_map[file_name].hash != blob.hash
+            ):  # not in LCA, modified in both branches
+                conflicted = True
+                absolute_path.write_text(
+                    generate_conflict(
+                        origin_blob_map[file_name].contents, blob.contents
+                    )
+                )
+            else:  # not in LCA, unchanged in current branch, added in given branch
+                checkout_commit(repo, target_branch_commit.hash, file_name)
+                add(repo, file_name)
+        else:
+            if (
+                lca.file_blob_map[file_name].hash != blob.hash
+                and file_name not in origin_blob_map
+            ):  # in LCA, deleted in current branch, modified in given branch
+                conflicted = True
+                absolute_path.write_text(
+                    generate_conflict(
+                        origin_blob_map[file_name].contents, blob.contents
+                    )
+                )
+            elif (
+                lca.file_blob_map[file_name].hash != blob.hash
+                and file_name in origin_blob_map
+                and lca.file_blob_map[file_name] != origin_blob_map[file_name]
+                and origin_blob_map[file_name] != blob.hash
+            ):  # in LCA, modified in both branches
+                conflicted = True
+                absolute_path.write_text(
+                    generate_conflict(
+                        origin_blob_map[file_name].contents, blob.contents
+                    )
+                )
+
+    for file_name, blob in origin_blob_map.items():
+        absolute_path = repo.gitlet.parent / file_name
+        if file_name in lca.file_blob_map:
+            if (
+                lca.file_blob_map[file_name].hash != blob.hash
+                and file_name not in target_blob_map
+            ):  # in LCA, modified in current branch, deleted in given branch
+                conflicted = True
+                absolute_path.write_text(
+                    generate_conflict(
+                        blob.contents, target_blob_map[file_name].contents
+                    )
+                )
+            elif (
+                file_name in target_blob_map
+                and lca.file_blob_map[file_name] == blob.hash
+                and lca.file_blob_map[file_name] != target_blob_map[file_name].hash
+            ):  # in LCA, unchanged in current branch, modified in given branch
+                checkout_commit(repo, target_branch_commit.hash, file_name)
+                add(repo, file_name)
+            elif (
+                lca.file_blob_map[file_name].hash == blob.hash
+                and file_name not in target_blob_map
+            ):  # in LCA, unchanged in current branch, deleted in given branch
+                remove(repo, file_name)
+
+    merge_commit(repo, get_current_branch(repo), target_branch)
+
+    if conflicted:
+        print("Encountered a merge conflict")
+
+
+def merge_commit(
+    repo: Repository, origin_branch: Branch, target_branch: Branch
+) -> None:
+    """
+    Commits merge changes to the repository.
+
+    Args:
+        repo: PyGitlet repository.
+        origin_branch: Origin branch to merge into.
+        target_branch: Branch to be merged.
+
+    Raises:
+        PyGitletException: If the stage is empty.
+    """
+    if list(repo.stage.iterdir()) == []:
+        raise PyGitletException("No changes added to the commit.")
+
+    current_branch = get_current_branch(repo)
+    blob_dict = current_branch.commit.file_blob_map
+    for k in repo.stage.iterdir():
+        with k.open(mode="rb") as f:
+            blob: Blob = pickle.load(f)
+        if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
+            with (repo.blobs / blob.hash).open(mode="wb") as f:
+                pickle.dump(blob, f)
+        if blob.diff != Diff.DELETED:
+            blob_dict = blob_dict.set(blob.name, blob)
+        else:
+            blob_dict = blob_dict.delete(blob.name)
+        k.unlink()
+
+    commit = Commit(
+        datetime.now().astimezone(),
+        f"Merged {target_branch.name} into {current_branch.name}",
+        [current_branch.commit, target_branch.commit],
+        file_blob_map=blob_dict,
+    )
+    write_commit(repo, commit)
+
+    set_branch_commit(repo, current_branch, commit)

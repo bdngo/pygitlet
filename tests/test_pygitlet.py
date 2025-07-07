@@ -16,13 +16,13 @@ def repo(tmp_path: Path) -> commands.Repository:
 
 @pytest.fixture
 def tmp_file1(tmp_path: Path) -> Path:
-    (tmp_path / "a.in").write_text("a")
+    (tmp_path / "a.in").write_text("a\n")
     return Path("a.in")
 
 
 @pytest.fixture
 def tmp_file2(tmp_path: Path) -> Path:
-    (tmp_path / "b.in").write_text("b")
+    (tmp_path / "b.in").write_text("b\n")
     return Path("b.in")
 
 
@@ -44,7 +44,7 @@ def log_pattern() -> re.Pattern:
 @pytest.fixture
 def merge_log_pattern() -> re.Pattern:
     return re.compile(
-        r"===\ncommit [0-9a-f]+\nMerge: [0-9a-f]{7} [0-9a-f{7}\nDate: .+\n.+"
+        r"===\ncommit [0-9a-f]+\nMerge: [0-9a-f]{7} [0-9a-f]{7}\nDate: .+\n.+"
     )
 
 
@@ -140,7 +140,7 @@ def test_commit(repo: commands.Repository, tmp_file1: Path) -> None:
 def test_commit_changed_file(
     repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed a.in")
 
@@ -166,7 +166,7 @@ def test_commit_removed_file(
         repo_commit_tmp_file1.blobs / current_commit.file_blob_map[tmp_file1].hash
     ).open(mode="rb") as f:
         tracked_blob: commands.Blob = pickle.load(f)
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.remove(repo_commit_tmp_file1, tmp_file1)
     assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 1
@@ -174,7 +174,7 @@ def test_commit_removed_file(
     with (repo_commit_tmp_file1.stage / tmp_file1).open(mode="rb") as f:
         blob: commands.Blob = pickle.load(f)
     assert blob.name == tracked_blob.name
-    assert blob.contents == "b"
+    assert blob.contents == "b\n"
     assert blob.diff == commands.Diff.DELETED
 
 
@@ -210,7 +210,7 @@ def test_commit_empty_message(repo: commands.Repository, tmp_file1: Path) -> Non
 def test_remove(
     repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.remove(repo_commit_tmp_file1, tmp_file1)
 
@@ -263,11 +263,11 @@ def test_log_only_current_head(
     commands.branch(repo_commit_tmp_file1, "new")
     commands.checkout_branch(repo_commit_tmp_file1, "new")
 
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "commit on new branch")
 
-    (tmp_path / tmp_file1).write_text("c")
+    (tmp_path / tmp_file1).write_text("c\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "commit on new branch again")
 
@@ -285,7 +285,7 @@ def test_log_with_reset(
     tmp_file1: Path,
     log_pattern: re.Pattern,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commit_hash = commands.get_current_branch(repo_commit_tmp_file1).commit.hash
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed a.in")
@@ -295,22 +295,27 @@ def test_log_with_reset(
     assert len(list(re.finditer(log_pattern, log))) == 2
 
 
-@pytest.mark.skip(reason="merging not implemented")
 def test_log_merge_commit(
-    repo_commit_tmp_file1: commands.Repository,
+    repo: commands.Repository,
     tmp_path: Path,
     tmp_file1: Path,
+    tmp_file2: Path,
     log_pattern: re.Pattern,
     merge_log_pattern: re.Pattern,
 ) -> None:
-    commands.branch(repo_commit_tmp_file1, "new")
-    commands.checkout_branch(repo_commit_tmp_file1, "new")
-    (tmp_path / tmp_file1).write_text("b")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "commit on new branch")
-    commands.checkout_branch(repo_commit_tmp_file1, "main")
-    commands.merge(repo_commit_tmp_file1, "new")
-    log = commands.log(repo_commit_tmp_file1)
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in")
+
+    commands.checkout_branch(repo, "new")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "commit b.in")
+
+    commands.checkout_branch(repo, "main")
+    commands.merge(repo, "new")
+    log = commands.log(repo)
+    print(log)
     assert len(list(re.finditer(merge_log_pattern, log))) == 1
     assert len(list(re.finditer(log_pattern, log))) == 2
 
@@ -338,7 +343,7 @@ def test_global_log_with_reset(
     tmp_file1: Path,
     log_pattern: re.Pattern,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commit_hash = commands.get_current_branch(repo_commit_tmp_file1).commit.hash
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed a.in")
@@ -448,7 +453,7 @@ def test_status_staged_for_addition(repo: commands.Repository, tmp_file1: Path) 
 def test_status_staged_for_removal(
     repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.remove(repo_commit_tmp_file1, tmp_file1)
     status = commands.status(repo_commit_tmp_file1)
@@ -472,7 +477,7 @@ def test_status_staged_for_removal(
 def test_status_modified_unstaged(
     repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     status = commands.status(repo_commit_tmp_file1)
     expected = dedent(
         f"""
@@ -518,7 +523,7 @@ def test_status_modified_staged(
 ) -> None:
     commands.init(repo)
     commands.add(repo, tmp_file1)
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     status = commands.status(repo)
     expected = dedent(
         f"""
@@ -587,7 +592,7 @@ def test_checkout_file(
     repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
 ) -> None:
     tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.checkout_file(repo_commit_tmp_file1, tmp_file1)
     contents = (tmp_path / tmp_file1).read_text()
     assert contents == tracked_contents
@@ -609,7 +614,7 @@ def test_checkout_commit_one_commit(
     tmp_file1: Path,
 ) -> None:
     tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
     commands.checkout_commit(repo_commit_tmp_file1, current_commit.hash, tmp_file1)
     contents = (tmp_path / tmp_file1).read_text()
@@ -622,7 +627,7 @@ def test_checkout_commit_substring_hash(
     tmp_file1: Path,
 ) -> None:
     tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
     commands.checkout_commit(repo_commit_tmp_file1, current_commit.hash[:7], tmp_file1)
     contents = (tmp_path / tmp_file1).read_text()
@@ -635,7 +640,7 @@ def test_checkout_commit_multiple_commits(
     tmp_file1: Path,
 ) -> None:
     tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed a.in")
 
@@ -647,7 +652,7 @@ def test_checkout_commit_multiple_commits(
 
     commands.checkout_commit(repo_commit_tmp_file1, current_commit.hash, tmp_file1)
     contents = (tmp_path / tmp_file1).read_text()
-    assert contents == "b"
+    assert contents == "b\n"
 
 
 def test_checkout_commit_untracked(
@@ -678,7 +683,7 @@ def test_checkout_branch(
     commands.branch(repo_commit_tmp_file1, "new")
     commands.checkout_branch(repo_commit_tmp_file1, "new")
 
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed on new branch")
 
@@ -687,7 +692,7 @@ def test_checkout_branch(
     assert commands.get_current_branch(repo_commit_tmp_file1).name == "main"
 
     commands.checkout_branch(repo_commit_tmp_file1, "new")
-    assert (tmp_path / tmp_file1).read_text() == "b"
+    assert (tmp_path / tmp_file1).read_text() == "b\n"
     assert commands.get_current_branch(repo_commit_tmp_file1).name == "new"
 
 
@@ -715,7 +720,7 @@ def test_checkout_overwrite_untracked_file(
     commands.commit(repo, "commit two files")
 
     commands.checkout_branch(repo, "new")
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     with pytest.raises(
         errors.PyGitletException,
         match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
@@ -732,7 +737,7 @@ def test_checkout_branch_empty_stage(
     commands.branch(repo_commit_tmp_file1, "new")
     commands.checkout_branch(repo_commit_tmp_file1, "new")
 
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed on new branch")
 
@@ -791,7 +796,7 @@ def test_reset(
     repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
 ) -> None:
     old_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed a.in")
@@ -803,7 +808,7 @@ def test_reset(
 def test_reset_nonexistent(
     repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed a.in")
 
@@ -822,14 +827,14 @@ def test_reset_overwrite_untracked_file(
     commands.commit(repo, "commit two files")
 
     commands.branch(repo, "new")
-    (tmp_path / "c.in").write_text("c")
+    (tmp_path / "c.in").write_text("c\n")
     commands.add(repo, "c.in")
     commands.remove(repo, tmp_file2)
     commands.commit(repo, "add c.in, remove b.in")
     current_commit = commands.get_current_branch(repo).commit
 
     commands.checkout_branch(repo, "new")
-    (tmp_path / "c.in").write_text("d")
+    (tmp_path / "c.in").write_text("d\n")
     with pytest.raises(
         errors.PyGitletException,
         match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
@@ -844,7 +849,7 @@ def test_reset_empty_stage(
     tmp_file2: Path,
 ) -> None:
     current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo_commit_tmp_file1, tmp_file1)
     commands.commit(repo_commit_tmp_file1, "changed on new branch")
 
@@ -920,7 +925,7 @@ def test_merge_nonempty_stage(
     commands.commit(repo, "commit b.in on new branch")
 
     commands.checkout_branch(repo, "main")
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo, tmp_file1)
 
     with pytest.raises(
@@ -954,7 +959,7 @@ def test_merge_untracked_file(
     commands.commit(repo, "commit b.in on new branch")
 
     commands.checkout_branch(repo, "main")
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
 
     with pytest.raises(
         errors.PyGitletException,
@@ -978,23 +983,23 @@ def test_merge_criss_cross(
     commands.merge(repo, "main")
 
     commands.checkout_branch(repo, "main")
-    (tmp_path / tmp_file1).write_text("b")
+    (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo, tmp_file1)
     commands.commit(repo, "changed a.in on main")
     commands.merge(repo, "temp")
 
-    (tmp_path / tmp_file2).write_text("a")
+    (tmp_path / tmp_file2).write_text("a\n")
     commands.add(repo, tmp_file2)
     commands.commit(repo, "changed b.in on main")
 
     commands.checkout_branch(repo, "new")
-    (tmp_path / "c.in").write_text("c")
+    (tmp_path / "c.in").write_text("c\n")
     commands.add(repo, "c.in")
     commands.commit(repo, "added c.in on new")
 
     commands.checkout_branch(repo, "main")
     commands.merge(repo, "new")
 
-    assert (tmp_path / tmp_file1).read_text() == "b"
-    assert (tmp_path / tmp_file2).read_text() == "a"
-    assert (tmp_path / "c.in").read_text() == "c"
+    assert (tmp_path / tmp_file1).read_text() == "b\n"
+    assert (tmp_path / tmp_file2).read_text() == "a\n"
+    assert (tmp_path / "c.in").read_text() == "c\n"
