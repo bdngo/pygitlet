@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from textwrap import dedent
-from typing import Generator, Self
+from typing import Self
 
 from frozendict import frozendict
 
