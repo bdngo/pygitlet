@@ -360,6 +360,23 @@ Timestamps are displayed with the local UTC offset.</p>
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="pygitlet.commands.generate_conflict">
+<span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">generate_conflict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">str</span></span></span><a class="headerlink" href="#pygitlet.commands.generate_conflict" title="Link to this definition">¶</a></dt>
+<dd><p>Creates a version of the a file with conflicts.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>origin</strong> – Contents of file in the current branch.</p></li>
+<li><p><strong>target</strong> – Contents of file in the given branch.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>New file with conflicts shown.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="pygitlet.commands.get_current_branch">
 <span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">get_current_branch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Repository" title="pygitlet.commands.Repository"><span class="pre">Repository</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#pygitlet.commands.Branch" title="pygitlet.commands.Branch"><span class="pre">Branch</span></a></span></span><a class="headerlink" href="#pygitlet.commands.get_current_branch" title="Link to this definition">¶</a></dt>
 <dd><p>Utility function to get the current branch
@@ -454,6 +471,24 @@ This means it does not show commit history that the working branch does not shar
 </dd>
 <dt class="field-even">Raises<span class="colon">:</span></dt>
 <dd class="field-even"><p><a class="reference internal" href="#pygitlet.errors.PyGitletException" title="pygitlet.errors.PyGitletException"><strong>PyGitletException</strong></a> – If the stage is nonempty, target branch doesn’t exist, is itself, or if there are uncommitted changes.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="pygitlet.commands.merge_commit">
+<span class="sig-prename descclassname"><span class="pre">pygitlet.commands.</span></span><span class="sig-name descname"><span class="pre">merge_commit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Repository" title="pygitlet.commands.Repository"><span class="pre">Repository</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin_branch</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Branch" title="pygitlet.commands.Branch"><span class="pre">Branch</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_branch</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#pygitlet.commands.Branch" title="pygitlet.commands.Branch"><span class="pre">Branch</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#pygitlet.commands.merge_commit" title="Link to this definition">¶</a></dt>
+<dd><p>Commits merge changes to the repository.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>repo</strong> – PyGitlet repository.</p></li>
+<li><p><strong>origin_branch</strong> – Origin branch to merge into.</p></li>
+<li><p><strong>target_branch</strong> – Branch to be merged.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#pygitlet.errors.PyGitletException" title="pygitlet.errors.PyGitletException"><strong>PyGitletException</strong></a> – If the stage is empty.</p>
 </dd>
 </dl>
 </dd></dl>
