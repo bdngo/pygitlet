@@ -1,3 +1,5 @@
+"""Unit tests for PyGitlet."""
+
 import pickle
 import re
 from datetime import datetime, timezone
@@ -1060,3 +1062,117 @@ def test_merge_criss_cross(
     conflicted_tmp_file1 = "<<<<<<< HEAD\na\n=======\n\n>>>>>>>\n"
     assert (tmp_path / tmp_file1).read_text() == conflicted_tmp_file1
     assert (tmp_path / tmp_file2).read_text() == "c\n"
+
+
+def test_merge_conflict_deleted_modified(
+    repo_commit_tmp_file1: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    capsys,
+) -> None:
+    commands.branch(repo_commit_tmp_file1, "new")
+
+    (tmp_path / tmp_file1).write_text("b\n")
+    commands.add(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "change a.in on main")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    commands.remove(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "remove a.in on new")
+
+    commands.merge(repo_commit_tmp_file1, "main")
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Encountered a merge conflict."
+    conflicted_tmp_file1 = "<<<<<<< HEAD\n\n=======\nb\n>>>>>>>\n"
+    assert (tmp_path / tmp_file1).read_text() == conflicted_tmp_file1
+
+
+def test_merge_conflict_deleted_modified_2(
+    repo_commit_tmp_file1: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    capsys,
+) -> None:
+    commands.branch(repo_commit_tmp_file1, "new")
+
+    (tmp_path / tmp_file1).write_text("b\n")
+    commands.add(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "change a.in on main")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    commands.remove(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "remove a.in on new")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "main")
+    commands.merge(repo_commit_tmp_file1, "new")
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Encountered a merge conflict."
+    conflicted_tmp_file1 = "<<<<<<< HEAD\nb\n=======\n\n>>>>>>>\n"
+    assert (tmp_path / tmp_file1).read_text() == conflicted_tmp_file1
+
+
+def test_merge_conflict_both_modified(
+    repo_commit_tmp_file1: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    capsys,
+) -> None:
+    commands.branch(repo_commit_tmp_file1, "new")
+
+    (tmp_path / tmp_file1).write_text("b\n")
+    commands.add(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "change a.in on main")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    (tmp_path / tmp_file1).write_text("c\n")
+    commands.add(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "change a.in on new")
+
+    commands.merge(repo_commit_tmp_file1, "main")
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Encountered a merge conflict."
+    conflicted_tmp_file1 = "<<<<<<< HEAD\nc\n=======\nb\n>>>>>>>\n"
+    assert (tmp_path / tmp_file1).read_text() == conflicted_tmp_file1
+
+
+def test_merge_conflict_unchanged_modified(
+    repo_commit_tmp_file1: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.branch(repo_commit_tmp_file1, "new")
+    commands.add(repo_commit_tmp_file1, tmp_file2)
+    commands.commit(repo_commit_tmp_file1, "add b.in on main")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    (tmp_path / tmp_file1).write_text("c\n")
+    commands.add(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "change a.in on new")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "main")
+    commands.merge(repo_commit_tmp_file1, "new")
+
+    assert (tmp_path / tmp_file1).read_text() == "c\n"
+    assert (tmp_path / tmp_file2).read_text() == "b\n"
+
+
+def test_merge_conflict_unchanged_deleted(
+        repo_commit_tmp_file1: commands.Repository,
+        tmp_path: Path,
+        tmp_file1: Path,
+        tmp_file2: Path,
+) -> None:
+    commands.branch(repo_commit_tmp_file1, "new")
+    commands.add(repo_commit_tmp_file1, tmp_file2)
+    commands.commit(repo_commit_tmp_file1, "add b.in on main")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    commands.remove(repo_commit_tmp_file1, tmp_file1)
+    commands.commit(repo_commit_tmp_file1, "remove a.in on new")
+
+    commands.checkout_branch(repo_commit_tmp_file1, "main")
+    commands.merge(repo_commit_tmp_file1, "new")
+
+    assert not (tmp_path / tmp_file1).exists()
+    assert (tmp_path / tmp_file2).read_text() == "b\n"

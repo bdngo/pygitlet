@@ -14,7 +14,7 @@ from typing import Self
 
 from frozendict import frozendict
 
-from .errors import PyGitletException
+from pygitlet.errors import PyGitletException
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,7 +487,11 @@ def modified_status(repo: Repository) -> str:
     for relative_path, blob in current_commit.file_blob_map.items():
         if (repo.gitlet.parent / relative_path).exists():
             contents = (repo.gitlet.parent / relative_path).read_text()
-            if hash_contents(contents) != blob.hash:
+            hashed_contents = hash_contents(contents)
+            if (
+                hashed_contents != blob.hash
+                and not (repo.stage / relative_path).exists()
+            ):
                 modified_files_with_diff[relative_path] = Diff.MODIFIED
         else:
             potentially_staged_for_removal = repo.stage / relative_path
@@ -593,8 +597,8 @@ def checkout_commit(repo: Repository, commit_id: str, file_path: Path) -> None:
     try:
         with next(commit_glob).open(mode="rb") as f:
             found_commit: Commit = pickle.load(f)
-    except StopIteration:
-        raise PyGitletException("No commit with that id exists.")
+    except StopIteration as e:
+        raise PyGitletException("No commit with that id exists.") from e
 
     if file_path not in found_commit.file_blob_map:
         raise PyGitletException("File does not exist in that commit.")
@@ -747,7 +751,7 @@ def commit_history(commit: Commit) -> list[Commit]:
     return commit_bfs
 
 
-def latest_common_ancestor(repo: Repository, origin: Commit, target: Commit) -> Commit:
+def latest_common_ancestor(origin: Commit, target: Commit) -> Commit:
     """
     Finds the latest common ancestor (i.e. split point) for two commits.
 
@@ -806,11 +810,11 @@ def merge(repo: Repository, target_branch_name: str) -> None:
         target_branch: Branch = pickle.load(f)
     origin_branch_commit = get_current_branch(repo).commit
     target_branch_commit = target_branch.commit
-    lca = latest_common_ancestor(repo, origin_branch_commit, target_branch_commit)
+    lca = latest_common_ancestor(origin_branch_commit, target_branch_commit)
     if lca == target_branch_commit:
         print("Given branch is an ancestor of the current branch.")
         return
-    elif lca == origin_branch_commit:
+    if lca == origin_branch_commit:
         checkout_branch(repo, target_branch.name)
         print("Current branch fast-forwarded.")
         return
@@ -877,8 +881,8 @@ def merge(repo: Repository, target_branch_name: str) -> None:
                 add(repo, file_name)
             elif (
                 file_name in target_blob_map
-                and lca.file_blob_map[file_name] == blob.hash
-                and lca.file_blob_map[file_name] != target_blob_map[file_name].hash
+                and lca.file_blob_map[file_name].hash == blob.hash
+                and lca.file_blob_map[file_name].hash != target_blob_map[file_name].hash
             ):  # in LCA, unchanged in current branch, modified in given branch
                 checkout_commit(repo, target_branch_commit.hash, file_name)
                 add(repo, file_name)
@@ -908,8 +912,7 @@ def merge_commit(
     Raises:
         PyGitletException: If the stage is empty.
     """
-    current_branch = get_current_branch(repo)
-    blob_dict = current_branch.commit.file_blob_map
+    blob_dict = origin_branch.commit.file_blob_map
     for k in repo.stage.iterdir():
         with k.open(mode="rb") as f:
             blob: Blob = pickle.load(f)
@@ -924,10 +927,10 @@ def merge_commit(
 
     commit = Commit(
         datetime.now().astimezone(),
-        f"Merged {target_branch.name} into {current_branch.name}",
-        [current_branch.commit, target_branch.commit],
+        f"Merged {target_branch.name} into {origin_branch.name}",
+        [origin_branch.commit, target_branch.commit],
         file_blob_map=blob_dict,
     )
     write_commit(repo, commit)
 
-    set_branch_commit(repo, current_branch, commit)
+    set_branch_commit(repo, origin_branch, commit)
