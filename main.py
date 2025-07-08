@@ -46,9 +46,21 @@ def main() -> None:
     )
     parser_remove_branch.add_argument("branch")
 
+    parser_reset = subparsers.add_parser(
+        "reset", description="Reset the working directory to a commit."
+    )
+    parser_reset.add_argument("commit")
+
+    parser_merge = subparsers.add_parser(
+        "merge", description="Merge the given branch into the current branch."
+    )
+    parser_merge.add_argument("branch")
+
     args = parser.parse_args()
     repo = commands.Repository(Path.cwd() / ".gitlet")
     try:
+        if not repo.gitlet.exists():
+            raise errors.PyGitletException("Not in an initialized Gitlet directory.")
         match args.subcommand:
             case "init":
                 commands.init(repo)
@@ -78,6 +90,10 @@ def main() -> None:
                 commands.branch(repo, args.branch)
             case "rm-branch":
                 commands.remove_branch(repo, args.branch)
+            case "reset":
+                commands.reset(repo, args.commit)
+            case "merge":
+                commands.reset(repo, args.branch)
             case _:
                 raise errors.PyGitletException("No command with that name exists.")
     except errors.PyGitletException as e:

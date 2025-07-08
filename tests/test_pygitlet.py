@@ -828,7 +828,7 @@ def test_reset_overwrite_untracked_file(
 
     commands.branch(repo, "new")
     (tmp_path / "c.in").write_text("c\n")
-    commands.add(repo, "c.in")
+    commands.add(repo, Path("c.in"))
     commands.remove(repo, tmp_file2)
     commands.commit(repo, "add c.in, remove b.in")
     current_commit = commands.get_current_branch(repo).commit
@@ -856,6 +856,19 @@ def test_reset_empty_stage(
     commands.add(repo_commit_tmp_file1, tmp_file2)
     commands.reset(repo_commit_tmp_file1, current_commit.hash)
     assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 0
+
+
+def test_reset_removed_file(
+    repo_commit_tmp_file1: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
+    commands.add(repo_commit_tmp_file1, tmp_file2)
+    commands.commit(repo_commit_tmp_file1, "add b.in")
+    commands.reset(repo_commit_tmp_file1, current_commit.hash)
+    assert not (tmp_path / tmp_file2).exists()
 
 
 def test_merge(
@@ -950,16 +963,24 @@ def test_merge_untracked_file(
     tmp_file2: Path,
 ) -> None:
     commands.init(repo)
-    commands.branch(repo, "new")
     commands.add(repo, tmp_file1)
-    commands.commit(repo, "commit a.in")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "commit two files")
+    commands.branch(repo, "new")
+
+    (tmp_path / "c.in").write_text("c\n")
+    commands.add(repo, Path("c.in"))
+    commands.remove(repo, tmp_file2)
+    commands.commit(repo, "add c.in, remove b.in on main")
 
     commands.checkout_branch(repo, "new")
-    commands.add(repo, tmp_file2)
-    commands.commit(repo, "commit b.in on new branch")
+    commands.remove(repo, tmp_file1)
+    (tmp_path / "d.in").write_text("d\n")
+    commands.add(repo, Path("d.in"))
+    commands.commit(repo, "add d.in, remove a.in on new")
 
     commands.checkout_branch(repo, "main")
-    (tmp_path / tmp_file1).write_text("b\n")
+    (tmp_path / "d.in").write_text("a\n")
 
     with pytest.raises(
         errors.PyGitletException,
@@ -968,8 +989,33 @@ def test_merge_untracked_file(
         commands.merge(repo, "new")
 
 
+def test_merge_target_is_ancestor(
+    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in")
+    commands.merge(repo, "new")
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Given branch is an ancestor of the current branch."
+
+
+def test_merge_fast_forward(
+    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys
+) -> None:
+    commands.init(repo)
+    commands.branch(repo, "new")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "commit a.in")
+    commands.checkout_branch(repo, "new")
+    commands.merge(repo, "main")
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Current branch fast-forwarded."
+
+
 def test_merge_criss_cross(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path
+    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path, capsys
 ) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -977,29 +1023,40 @@ def test_merge_criss_cross(
     commands.commit(repo, "commit a.in on main")
 
     commands.checkout_branch(repo, "new")
-    commands.add(repo, tmp_file2)
-    commands.commit(repo, "commit b.in on new")
-    commands.branch(repo, "temp")
-    commands.merge(repo, "main")
-
-    commands.checkout_branch(repo, "main")
     (tmp_path / tmp_file1).write_text("b\n")
     commands.add(repo, tmp_file1)
-    commands.commit(repo, "changed a.in on main")
-    commands.merge(repo, "temp")
+    commands.commit(repo, "commit a.in on new")
 
-    (tmp_path / tmp_file2).write_text("a\n")
-    commands.add(repo, tmp_file2)
-    commands.commit(repo, "changed b.in on main")
+    commands.branch(repo, "temp")
+    commands.merge(repo, "main")
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Encountered a merge conflict."
+    conflicted_tmp_file1 = "<<<<<<< HEAD\nb\n=======\na\n>>>>>>>\n"
+    assert (tmp_path / tmp_file1).read_text() == conflicted_tmp_file1
 
-    commands.checkout_branch(repo, "new")
-    (tmp_path / "c.in").write_text("c\n")
-    commands.add(repo, "c.in")
-    commands.commit(repo, "added c.in on new")
+    (tmp_path / tmp_file1).write_text("b\n")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "reset conflicted a.in on new")
+    commands.remove(repo, tmp_file1)
+    commands.commit(repo, "remove a.in on new")
 
     commands.checkout_branch(repo, "main")
-    commands.merge(repo, "new")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "add b.in on main")
+    commands.merge(repo, "temp")
 
-    assert (tmp_path / tmp_file1).read_text() == "b\n"
-    assert (tmp_path / tmp_file2).read_text() == "a\n"
-    assert (tmp_path / "c.in").read_text() == "c\n"
+    (tmp_path / tmp_file2).write_text("c\n")
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "changed b.in on main")
+    assert captured.out.strip() == "Encountered a merge conflict."
+    conflicted_tmp_file1 = "<<<<<<< HEAD\na\n=======\nb\n>>>>>>>\n"
+    assert (tmp_path / tmp_file1).read_text() == conflicted_tmp_file1
+
+    (tmp_path / tmp_file1).write_text("a\n")
+    commands.add(repo, tmp_file1)
+    commands.commit(repo, "reset conflicted a.in on main")
+    commands.merge(repo, "new")
+    assert captured.out.strip() == "Encountered a merge conflict."
+    conflicted_tmp_file1 = "<<<<<<< HEAD\na\n=======\n\n>>>>>>>\n"
+    assert (tmp_path / tmp_file1).read_text() == conflicted_tmp_file1
+    assert (tmp_path / tmp_file2).read_text() == "c\n"

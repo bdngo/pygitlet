@@ -227,8 +227,8 @@ def add(repo: Repository, file_path: Path) -> None:
             potentially_staged_for_removal = dataclasses.replace(
                 potentially_staged_for_removal, diff=Diff.ADDED
             )
-        with stage_file_path.open(mode="wb") as f:
-            pickle.dump(potentially_staged_for_removal, f)
+            with stage_file_path.open(mode="wb") as f:
+                pickle.dump(potentially_staged_for_removal, f)
         return
 
     absolute_path = repo.gitlet.parent / file_path
@@ -713,7 +713,7 @@ def reset(repo: Repository, commit_id: str) -> None:
 
     for old_file_name, blob in current_commit.file_blob_map.items():
         absolute_path = repo.gitlet.parent / old_file_name
-        if old_file_name not in current_commit.file_blob_map:
+        if old_file_name not in target_commit.file_blob_map:
             absolute_path.unlink()
 
     for staged_file in repo.stage.iterdir():
@@ -839,6 +839,7 @@ def merge(repo: Repository, target_branch_name: str) -> None:
                         origin_blob_map[file_name].contents, blob.contents
                     )
                 )
+                add(repo, file_name)
             else:  # not in LCA, unchanged in current branch, added in given branch
                 checkout_commit(repo, target_branch_commit.hash, file_name)
                 add(repo, file_name)
@@ -848,11 +849,8 @@ def merge(repo: Repository, target_branch_name: str) -> None:
                 and file_name not in origin_blob_map
             ):  # in LCA, deleted in current branch, modified in given branch
                 conflicted = True
-                absolute_path.write_text(
-                    generate_conflict(
-                        origin_blob_map[file_name].contents, blob.contents
-                    )
-                )
+                absolute_path.write_text(generate_conflict("\n", blob.contents))
+                add(repo, file_name)
             elif (
                 lca.file_blob_map[file_name].hash != blob.hash
                 and file_name in origin_blob_map
@@ -865,6 +863,7 @@ def merge(repo: Repository, target_branch_name: str) -> None:
                         origin_blob_map[file_name].contents, blob.contents
                     )
                 )
+                add(repo, file_name)
 
     for file_name, blob in origin_blob_map.items():
         absolute_path = repo.gitlet.parent / file_name
@@ -874,11 +873,8 @@ def merge(repo: Repository, target_branch_name: str) -> None:
                 and file_name not in target_blob_map
             ):  # in LCA, modified in current branch, deleted in given branch
                 conflicted = True
-                absolute_path.write_text(
-                    generate_conflict(
-                        blob.contents, target_blob_map[file_name].contents
-                    )
-                )
+                absolute_path.write_text(generate_conflict(blob.contents, "\n"))
+                add(repo, file_name)
             elif (
                 file_name in target_blob_map
                 and lca.file_blob_map[file_name] == blob.hash
@@ -895,7 +891,7 @@ def merge(repo: Repository, target_branch_name: str) -> None:
     merge_commit(repo, get_current_branch(repo), target_branch)
 
     if conflicted:
-        print("Encountered a merge conflict")
+        print("Encountered a merge conflict.")
 
 
 def merge_commit(
@@ -912,9 +908,6 @@ def merge_commit(
     Raises:
         PyGitletException: If the stage is empty.
     """
-    if list(repo.stage.iterdir()) == []:
-        raise PyGitletException("No changes added to the commit.")
-
     current_branch = get_current_branch(repo)
     blob_dict = current_branch.commit.file_blob_map
     for k in repo.stage.iterdir():
