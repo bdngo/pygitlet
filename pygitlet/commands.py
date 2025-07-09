@@ -45,6 +45,10 @@ class Repository:
     def current_branch(self) -> Path:
         return self.branches / ".current-branch"
 
+    @property
+    def remotes(self) -> Path:
+        return self.gitlet / "remotes"
+
 
 class Diff(StrEnum):
     """
@@ -196,6 +200,7 @@ def init(repo: Repository) -> None:
     repo.blobs.mkdir()
     repo.stage.mkdir()
     repo.branches.mkdir()
+    repo.remotes.mkdir()
 
     aware_unix_epoch = datetime.fromtimestamp(0, tz=timezone.utc).astimezone()
     init_commit = Commit(aware_unix_epoch, "initial commit")
@@ -934,3 +939,38 @@ def merge_commit(
     write_commit(repo, commit)
 
     set_branch_commit(repo, origin_branch, commit)
+
+
+def add_remote(repo: Repository, remote_name: str, remote_path: Repository) -> None:
+    """
+    Adds a remote to the remote directory.
+
+    Args:
+        repo: PyGitlet repository.
+        remote_name: Name of remote.
+        remote_path: Path to remote .gitlet folder.
+
+    Raises:
+        PyGitletException: If the remote name already exists.
+    """
+    if (repo.remotes / remote_name).exists():
+        raise PyGitletException("A remote with that name already exists.")
+    
+    (repo.remotes / remote_name).symlink_to(remote_path.gitlet)
+
+
+def remove_remote(repo: Repository, remote_name: str) -> None:
+    """
+    Removes a remote from the remote directory.
+
+    Args:
+        repo: PyGitlet repository.
+        remote_name: Name of remote.
+
+    Raises:
+        PyGitletException: If the remote name does not exist.
+    """
+    if not (repo.remotes / remote_name).exists():
+        raise PyGitletException("A remote with that name does not exist.")
+    
+    (repo.remotes / remote_name).unlink()

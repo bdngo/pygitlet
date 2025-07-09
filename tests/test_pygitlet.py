@@ -1,5 +1,3 @@
-"""Unit tests for PyGitlet."""
-
 import pickle
 import re
 from datetime import datetime, timezone
@@ -11,46 +9,7 @@ import pytest
 from pygitlet import commands, errors
 
 
-@pytest.fixture
-def repo(tmp_path: Path) -> commands.Repository:
-    return commands.Repository(gitlet=tmp_path / ".gitlet")
-
-
-@pytest.fixture
-def tmp_file1(tmp_path: Path) -> Path:
-    (tmp_path / "a.in").write_text("a\n")
-    return Path("a.in")
-
-
-@pytest.fixture
-def tmp_file2(tmp_path: Path) -> Path:
-    (tmp_path / "b.in").write_text("b\n")
-    return Path("b.in")
-
-
-@pytest.fixture
-def repo_commit_tmp_file1(
-    repo: commands.Repository, tmp_file1: Path
-) -> commands.Repository:
-    commands.init(repo)
-    commands.add(repo, tmp_file1)
-    commands.commit(repo, "commit a.in")
-    return repo
-
-
-@pytest.fixture
-def log_pattern() -> re.Pattern:
-    return re.compile(r"(===\ncommit [0-9a-f]+\nDate: .+\n.+)+")
-
-
-@pytest.fixture
-def merge_log_pattern() -> re.Pattern:
-    return re.compile(
-        r"===\ncommit [0-9a-f]+\nMerge: [0-9a-f]{7} [0-9a-f]{7}\nDate: .+\n.+"
-    )
-
-
-def test_successful_init(repo: commands.Repository) -> None:
+def test_init_successful(repo: commands.Repository) -> None:
     commands.init(repo)
     assert repo.gitlet.exists()
     assert repo.commits.exists()
@@ -58,10 +17,11 @@ def test_successful_init(repo: commands.Repository) -> None:
     assert repo.stage.exists()
     assert repo.branches.exists()
     assert repo.current_branch.exists()
+    assert repo.remotes.exists()
     assert commands.get_current_branch(repo).name == "main"
 
 
-def test_unsuccessful_init(repo: commands.Repository) -> None:
+def test_init_unsuccessful(repo: commands.Repository) -> None:
     repo.gitlet.mkdir()
     with pytest.raises(
         errors.PyGitletException,
@@ -992,7 +952,7 @@ def test_merge_untracked_file(
 
 
 def test_merge_target_is_ancestor(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys
+    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -1004,7 +964,7 @@ def test_merge_target_is_ancestor(
 
 
 def test_merge_fast_forward(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys
+    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -1017,7 +977,7 @@ def test_merge_fast_forward(
 
 
 def test_merge_criss_cross(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path, capsys
+    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -1068,7 +1028,7 @@ def test_merge_conflict_deleted_modified(
     repo_commit_tmp_file1: commands.Repository,
     tmp_path: Path,
     tmp_file1: Path,
-    capsys,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     commands.branch(repo_commit_tmp_file1, "new")
 
@@ -1091,7 +1051,7 @@ def test_merge_conflict_deleted_modified_2(
     repo_commit_tmp_file1: commands.Repository,
     tmp_path: Path,
     tmp_file1: Path,
-    capsys,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     commands.branch(repo_commit_tmp_file1, "new")
 
@@ -1115,7 +1075,7 @@ def test_merge_conflict_both_modified(
     repo_commit_tmp_file1: commands.Repository,
     tmp_path: Path,
     tmp_file1: Path,
-    capsys,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     commands.branch(repo_commit_tmp_file1, "new")
 
@@ -1158,10 +1118,10 @@ def test_merge_conflict_unchanged_modified(
 
 
 def test_merge_conflict_unchanged_deleted(
-        repo_commit_tmp_file1: commands.Repository,
-        tmp_path: Path,
-        tmp_file1: Path,
-        tmp_file2: Path,
+    repo_commit_tmp_file1: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
 ) -> None:
     commands.branch(repo_commit_tmp_file1, "new")
     commands.add(repo_commit_tmp_file1, tmp_file2)
@@ -1176,3 +1136,31 @@ def test_merge_conflict_unchanged_deleted(
 
     assert not (tmp_path / tmp_file1).exists()
     assert (tmp_path / tmp_file2).read_text() == "b\n"
+
+
+def test_add_remote(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+    commands.init(repo)
+    commands.add_remote(repo, "remote", repo_remote)
+    assert (repo.remotes / "remote").exists()
+
+
+def test_add_remote_existing(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+    commands.init(repo)
+    commands.add_remote(repo, "remote", repo_remote)
+    with pytest.raises(errors.PyGitletException, match=r"A remote with that name already exists\."):
+        commands.add_remote(repo, "remote", repo_remote)
+
+
+def test_remove_remote(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+    commands.init(repo)
+    commands.add_remote(repo, "remote", repo_remote)
+    assert (repo.remotes / "remote").exists()
+    commands.remove_remote(repo, "remote")
+    assert not (repo.remotes / "remote").exists()
+
+
+def test_remove_remote_nonexistent(repo: commands.Repository) -> None:
+    commands.init(repo)
+    with pytest.raises(errors.PyGitletException, match=r"A remote with that name does not exist\."):
+        commands.remove_remote(repo, "remote")
+

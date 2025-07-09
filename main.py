@@ -7,7 +7,6 @@ from pygitlet import commands, errors
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="PyGitlet",
         description="A minimal Git client written in Python",
     )
     subparsers = parser.add_subparsers(
@@ -47,19 +46,30 @@ def main() -> None:
     parser_remove_branch.add_argument("branch")
 
     parser_reset = subparsers.add_parser(
-        "reset", description="Reset the working directory to a commit."
+        "reset", description="Reset the working directory to a commit"
     )
     parser_reset.add_argument("commit")
 
     parser_merge = subparsers.add_parser(
-        "merge", description="Merge the given branch into the current branch."
+        "merge", description="Merge the given branch into the current branch"
     )
     parser_merge.add_argument("branch")
+
+    parser_add_remote = subparsers.add_parser(
+        "add-remote", description="Add remote to repository"
+    )
+    parser_add_remote.add_argument("remote_name")
+    parser_add_remote.add_argument("remote_path", type=commands.Repository)
+    
+    parser_remove_remote = subparsers.add_parser(
+        "remove-remote", description="Remove remote from repository"
+    )
+    parser_remove_remote.add_argument("remote_name")
 
     args = parser.parse_args()
     repo = commands.Repository(Path.cwd() / ".gitlet")
     try:
-        if not repo.gitlet.exists():
+        if args.subcommand != "init" and not repo.gitlet.exists():
             raise errors.PyGitletException("Not in an initialized Gitlet directory.")
         match args.subcommand:
             case "init":
@@ -94,6 +104,10 @@ def main() -> None:
                 commands.reset(repo, args.commit)
             case "merge":
                 commands.reset(repo, args.branch)
+            case "add-remote":
+                commands.add_remote(repo, args.remote_name, args.remote_path)
+            case "rm-remote":
+                commands.remove_remote(repo, args.remote_name)
             case _:
                 raise errors.PyGitletException("No command with that name exists.")
     except errors.PyGitletException as e:
