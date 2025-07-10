@@ -50,7 +50,9 @@
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch"><code class="docutils literal notranslate"><span class="pre">Branch</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.commit"><code class="docutils literal notranslate"><span class="pre">Branch.commit</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.is_current"><code class="docutils literal notranslate"><span class="pre">Branch.is_current</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.local_name"><code class="docutils literal notranslate"><span class="pre">Branch.local_name</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.name"><code class="docutils literal notranslate"><span class="pre">Branch.name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Branch.remote"><code class="docutils literal notranslate"><span class="pre">Branch.remote</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Commit"><code class="docutils literal notranslate"><span class="pre">Commit</span></code></a><ul>
@@ -74,7 +76,6 @@
 <li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.commits"><code class="docutils literal notranslate"><span class="pre">Repository.commits</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.current_branch"><code class="docutils literal notranslate"><span class="pre">Repository.current_branch</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.gitlet"><code class="docutils literal notranslate"><span class="pre">Repository.gitlet</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.remotes"><code class="docutils literal notranslate"><span class="pre">Repository.remotes</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="pygitlet.html#pygitlet.commands.Repository.stage"><code class="docutils literal notranslate"><span class="pre">Repository.stage</span></code></a></li>
 </ul>
 </li>
@@ -87,6 +88,7 @@
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.checkout_file"><code class="docutils literal notranslate"><span class="pre">checkout_file()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.commit"><code class="docutils literal notranslate"><span class="pre">commit()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.commit_history"><code class="docutils literal notranslate"><span class="pre">commit_history()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.fetch"><code class="docutils literal notranslate"><span class="pre">fetch()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.find"><code class="docutils literal notranslate"><span class="pre">find()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.format_commit"><code class="docutils literal notranslate"><span class="pre">format_commit()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.generate_conflict"><code class="docutils literal notranslate"><span class="pre">generate_conflict()</span></code></a></li>
@@ -99,6 +101,8 @@
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.merge"><code class="docutils literal notranslate"><span class="pre">merge()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.merge_commit"><code class="docutils literal notranslate"><span class="pre">merge_commit()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.modified_status"><code class="docutils literal notranslate"><span class="pre">modified_status()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.pull"><code class="docutils literal notranslate"><span class="pre">pull()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.push"><code class="docutils literal notranslate"><span class="pre">push()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.remove"><code class="docutils literal notranslate"><span class="pre">remove()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.remove_branch"><code class="docutils literal notranslate"><span class="pre">remove_branch()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.remove_remote"><code class="docutils literal notranslate"><span class="pre">remove_remote()</span></code></a></li>
@@ -108,7 +112,7 @@
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.status"><code class="docutils literal notranslate"><span class="pre">status()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.untracked_status"><code class="docutils literal notranslate"><span class="pre">untracked_status()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.write_branch"><code class="docutils literal notranslate"><span class="pre">write_branch()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.write_commit"><code class="docutils literal notranslate"><span class="pre">write_commit()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="pygitlet.html#pygitlet.commands.write_object"><code class="docutils literal notranslate"><span class="pre">write_object()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="pygitlet.html#module-pygitlet.errors">pygitlet.errors module</a><ul>
