@@ -121,7 +121,7 @@ def main() -> None:
             case "reset":
                 commands.reset(repo, args.commit)
             case "merge":
-                commands.reset(repo, args.branch)
+                commands.merge(repo, args.branch)
             case "add-remote":
                 commands.add_remote(repo, args.remote_name, args.remote_path)
             case "rm-remote":
