@@ -12,9 +12,21 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Self
 
+import sqlalchemy as sa
 from frozendict import frozendict
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    MappedAsDataclass,
+    mapped_column,
+    relationship,
+)
 
 from pygitlet.errors import PyGitletException
+
+
+class Base(DeclarativeBase, MappedAsDataclass):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
