@@ -952,7 +952,10 @@ def test_merge_untracked_file(
 
 
 def test_merge_target_is_ancestor(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys: pytest.CaptureFixture[str]
+    repo: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -964,7 +967,10 @@ def test_merge_target_is_ancestor(
 
 
 def test_merge_fast_forward(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, capsys: pytest.CaptureFixture[str]
+    repo: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -977,7 +983,11 @@ def test_merge_fast_forward(
 
 
 def test_merge_criss_cross(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path, capsys: pytest.CaptureFixture[str]
+    repo: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     commands.init(repo)
     commands.branch(repo, "new")
@@ -1138,20 +1148,28 @@ def test_merge_conflict_unchanged_deleted(
     assert (tmp_path / tmp_file2).read_text() == "b\n"
 
 
-def test_add_remote(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+def test_add_remote(
+    repo: commands.Repository, repo_remote: commands.Repository
+) -> None:
     commands.init(repo)
     commands.add_remote(repo, "remote", repo_remote)
     assert (repo.remotes / "remote").exists()
 
 
-def test_add_remote_existing(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+def test_add_remote_existing(
+    repo: commands.Repository, repo_remote: commands.Repository
+) -> None:
     commands.init(repo)
     commands.add_remote(repo, "remote", repo_remote)
-    with pytest.raises(errors.PyGitletException, match=r"A remote with that name already exists\."):
+    with pytest.raises(
+        errors.PyGitletException, match=r"A remote with that name already exists\."
+    ):
         commands.add_remote(repo, "remote", repo_remote)
 
 
-def test_remove_remote(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+def test_remove_remote(
+    repo: commands.Repository, repo_remote: commands.Repository
+) -> None:
     commands.init(repo)
     commands.add_remote(repo, "remote", repo_remote)
     assert (repo.remotes / "remote").exists()
@@ -1161,6 +1179,38 @@ def test_remove_remote(repo: commands.Repository, repo_remote: commands.Reposito
 
 def test_remove_remote_nonexistent(repo: commands.Repository) -> None:
     commands.init(repo)
-    with pytest.raises(errors.PyGitletException, match=r"A remote with that name does not exist\."):
+    with pytest.raises(
+        errors.PyGitletException, match=r"A remote with that name does not exist\."
+    ):
         commands.remove_remote(repo, "remote")
 
+
+def test_push(
+    repo: commands.Repository,
+    repo_remote: commands.Repository,
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.add(repo, tmp_file1)
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "add a.in and b.in")
+
+    commands.init(repo_remote)
+    remote_file = repo_remote.gitlet.parent / "c.in"
+    remote_file.write_text("c\n")
+    commands.add(repo_remote, Path("c.in"))
+    commands.commit(repo_remote, "add c.in on remote")
+
+    commands.add_remote(repo_remote, "remote", repo.gitlet)
+    commands.fetch(repo_remote, "remote", "main")
+    commands.checkout_branch(repo_remote, "remote/main")
+    commit_hash = commands.get_current_branch(repo_remote).commit.hash
+    commands.checkout_branch(repo_remote, "main")
+    commands.reset(repo_remote, commit_hash)
+
+    (repo_remote.gitlet.parent / "d.in").write_text("d\n")
+    commands.add(repo_remote, "d.in")
+    commands.commit(repo_remote, "commit d.in on remote")
+    commands.push(repo_remote, "remote", "main")

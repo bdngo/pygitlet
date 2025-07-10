@@ -51,6 +51,4 @@ def merge_log_pattern() -> re.Pattern:
 def repo_remote(tmp_path: Path) -> commands.Repository:
     remote_path = tmp_path / "remote"
     remote_path.mkdir(parents=True)
-    repo = commands.Repository(remote_path / ".gitlet")
-    commands.init(repo)
-    return repo
+    return commands.Repository(remote_path / ".gitlet")
