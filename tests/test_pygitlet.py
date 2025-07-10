@@ -17,7 +17,6 @@ def test_init_successful(repo: commands.Repository) -> None:
     assert repo.stage.exists()
     assert repo.branches.exists()
     assert repo.current_branch.exists()
-    assert repo.remotes.exists()
     assert commands.get_current_branch(repo).name == "main"
 
 
@@ -1153,7 +1152,7 @@ def test_add_remote(
 ) -> None:
     commands.init(repo)
     commands.add_remote(repo, "remote", repo_remote)
-    assert (repo.remotes / "remote").exists()
+    assert (repo.branches / "remote").exists()
 
 
 def test_add_remote_existing(
@@ -1172,9 +1171,9 @@ def test_remove_remote(
 ) -> None:
     commands.init(repo)
     commands.add_remote(repo, "remote", repo_remote)
-    assert (repo.remotes / "remote").exists()
+    assert (repo.branches / "remote").exists()
     commands.remove_remote(repo, "remote")
-    assert not (repo.remotes / "remote").exists()
+    assert not (repo.branches / "remote").exists()
 
 
 def test_remove_remote_nonexistent(repo: commands.Repository) -> None:
@@ -1185,32 +1184,143 @@ def test_remove_remote_nonexistent(repo: commands.Repository) -> None:
         commands.remove_remote(repo, "remote")
 
 
-def test_push(
+def test_push_directory_not_found(repo_commit_tmp_file1: commands.Repository) -> None:
+    with pytest.raises(errors.PyGitletException, match=r"Remote directory not found\."):
+        commands.push(repo_commit_tmp_file1, "origin", "main")
+
+
+def test_fetch_nonexistent_gitlet(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+    commands.init(repo)
+    commands.add_remote(repo, "remote", repo_remote)
+    with pytest.raises(errors.PyGitletException, match=r"Remote directory not found\."):
+        commands.fetch(repo, "remote", "main")
+
+
+def test_fetch_nonexistent_branch(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+    commands.init(repo)
+    commands.init(repo_remote)
+    commands.add_remote(repo, "remote", repo_remote)
+    with pytest.raises(errors.PyGitletException, match=r"That remote does not have that branch\."):
+        commands.fetch(repo, "remote", "foo")
+
+
+def test_fetch_push(
     repo: commands.Repository,
     repo_remote: commands.Repository,
-    tmp_path: Path,
     tmp_file1: Path,
     tmp_file2: Path,
 ) -> None:
     commands.init(repo)
     commands.add(repo, tmp_file1)
     commands.add(repo, tmp_file2)
-    commands.commit(repo, "add a.in and b.in")
+    commands.commit(repo, "add a.in and b.in on r1")
+    r1_second_commit = commands.get_current_branch(repo).commit
 
     commands.init(repo_remote)
     remote_file = repo_remote.gitlet.parent / "c.in"
     remote_file.write_text("c\n")
     commands.add(repo_remote, Path("c.in"))
-    commands.commit(repo_remote, "add c.in on remote")
+    commands.commit(repo_remote, "add c.in on r2")
 
-    commands.add_remote(repo_remote, "remote", repo.gitlet)
-    commands.fetch(repo_remote, "remote", "main")
-    commands.checkout_branch(repo_remote, "remote/main")
+    commands.add_remote(repo_remote, "r1", repo)
+    commands.fetch(repo_remote, "r1", "main")
+    assert "r1/main" in commands.branch_status(repo_remote)
+    commands.checkout_branch(repo_remote, "r1/main")
     commit_hash = commands.get_current_branch(repo_remote).commit.hash
     commands.checkout_branch(repo_remote, "main")
     commands.reset(repo_remote, commit_hash)
 
     (repo_remote.gitlet.parent / "d.in").write_text("d\n")
-    commands.add(repo_remote, "d.in")
-    commands.commit(repo_remote, "commit d.in on remote")
-    commands.push(repo_remote, "remote", "main")
+    commands.add(repo_remote, Path("d.in"))
+    commands.commit(repo_remote, "commit d.in on r1")
+    r2_push_r1_commit = commands.get_current_branch(repo_remote).commit
+    commands.push(repo_remote, "r1", "main")
+
+    assert commands.get_current_branch(repo).commit == r2_push_r1_commit
+    assert commands.get_current_branch(repo).commit.parents[0] == r1_second_commit
+
+def test_push_branch_not_in_remote(
+    repo: commands.Repository,
+    repo_remote: commands.Repository,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.add(repo, tmp_file1)
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "add a.in and b.in on r1")
+
+    commands.init(repo_remote)
+    remote_file = repo_remote.gitlet.parent / "c.in"
+    remote_file.write_text("c\n")
+    commands.add(repo_remote, Path("c.in"))
+    commands.commit(repo_remote, "add c.in on r2")
+
+    commands.add_remote(repo_remote, "r1", repo)
+    commands.fetch(repo_remote, "r1", "main")
+    assert "r1/main" in commands.branch_status(repo_remote)
+    commands.checkout_branch(repo_remote, "r1/main")
+    commit_hash = commands.get_current_branch(repo_remote).commit.hash
+    commands.checkout_branch(repo_remote, "main")
+    commands.reset(repo_remote, commit_hash)
+
+    commands.branch(repo_remote, "other")
+    commands.checkout_branch(repo_remote, "other")
+    (repo_remote.gitlet.parent / "d.in").write_text("d\n")
+    commands.add(repo_remote, Path("d.in"))
+    commands.commit(repo_remote, "commit d.in on r2")
+    commands.push(repo_remote, "r1", "other")
+
+    assert (repo.branches / "other").exists()
+
+def test_push_unpulled_changes(
+    repo: commands.Repository,
+    repo_remote: commands.Repository,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.add(repo, tmp_file1)
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "add a.in and b.in on r1")
+
+    commands.init(repo_remote)
+    remote_file = repo_remote.gitlet.parent / "c.in"
+    remote_file.write_text("c\n")
+    commands.add(repo_remote, Path("c.in"))
+    commands.commit(repo_remote, "add c.in on r2")
+
+    commands.add_remote(repo_remote, "r1", repo)
+    commands.fetch(repo_remote, "r1", "main")
+    with pytest.raises(errors.PyGitletException, match=r"Please pull down remote changes before pushing\."):
+        commands.push(repo_remote, "r1", "main")
+
+def test_fetch_pull(
+    repo: commands.Repository,
+    repo_remote: commands.Repository,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    commands.init(repo)
+    commands.add(repo, tmp_file1)
+    commands.add(repo, tmp_file2)
+    commands.commit(repo, "add a.in and b.in on r1")
+
+    commands.init(repo_remote)
+
+    commands.add_remote(repo_remote, "r1", repo)
+    commands.fetch(repo_remote, "r1", "main")
+    commit_hash = commands.get_current_branch(repo).commit.hash
+    commands.reset(repo_remote, commit_hash)
+    (repo_remote.gitlet.parent / "d.in").write_text("d\n")
+    commands.add(repo_remote, Path("d.in"))
+    commands.commit(repo_remote, "commit d.in on r2")
+
+    remote_file = repo.gitlet.parent / "c.in"
+    remote_file.write_text("c\n")
+    commands.add(repo, Path("c.in"))
+    commands.commit(repo, "add c.in on r1")
+
+    commands.pull(repo_remote, "r1", "main")
+    print(commands.log(repo_remote))
+    assert commands.get_current_branch(repo_remote).commit.is_merge_commit

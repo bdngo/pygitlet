@@ -59,12 +59,26 @@ def main() -> None:
         "add-remote", description="Add remote to repository"
     )
     parser_add_remote.add_argument("remote_name")
-    parser_add_remote.add_argument("remote_path", type=commands.Repository)
-    
+    parser_add_remote.add_argument(
+        "remote_path", type=lambda p: commands.Repository(Path(p))
+    )
+
     parser_remove_remote = subparsers.add_parser(
         "remove-remote", description="Remove remote from repository"
     )
     parser_remove_remote.add_argument("remote_name")
+
+    parser_push = subparsers.add_parser("push", description="Push changes to remote")
+    parser_push.add_argument("remote_name")
+    parser_push.add_argument("branch_name")
+
+    parser_fetch = subparsers.add_parser("fetch", description="Fetch changes from remote")
+    parser_fetch.add_argument("remote_name")
+    parser_fetch.add_argument("branch_name")
+
+    parser_pull = subparsers.add_parser("pull", description="Pull changes from remote")
+    parser_pull.add_argument("remote_name")
+    parser_pull.add_argument("branch_name")
 
     args = parser.parse_args()
     repo = commands.Repository(Path.cwd() / ".gitlet")
@@ -108,6 +122,12 @@ def main() -> None:
                 commands.add_remote(repo, args.remote_name, args.remote_path)
             case "rm-remote":
                 commands.remove_remote(repo, args.remote_name)
+            case "push":
+                commands.push(repo, args.remote_name, args.branch_name)
+            case "fetch":
+                commands.fetch(repo, args.remote_name, args.branch_name)
+            case "pull":
+                commands.pull(repo, args.remote_name, args.branch_name)
             case _:
                 raise errors.PyGitletException("No command with that name exists.")
     except errors.PyGitletException as e:

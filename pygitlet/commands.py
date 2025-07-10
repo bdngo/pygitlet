@@ -45,10 +45,6 @@ class Repository:
     def current_branch(self) -> Path:
         return self.branches / ".current-branch"
 
-    @property
-    def remotes(self) -> Path:
-        return self.gitlet / "remotes"
-
 
 class Diff(StrEnum):
     """
@@ -91,7 +87,7 @@ class Commit:
     timestamp: datetime
     message: str
     parents: list[Self] = field(default_factory=list)
-    file_blob_map: frozendict[Path, Blob] = field(default_factory=frozendict)
+    file_blob_map: frozendict[Path, Blob] = frozendict()
 
     @property
     def hash(self) -> str:
@@ -104,27 +100,20 @@ class Commit:
         return len(self.parents) > 1
 
 
-def write_commit(repo: Repository, commit: Commit) -> None:
-    """
-    Writes a commit to the repository commit folder.
-
-    Args:
-        repo: PyGitlet repository.
-        commit: Commit to serialize and save.
-    """
-    with (repo.commits / commit.hash).open(mode="wb") as f:
-        pickle.dump(commit, f)
-
-
 @dataclass(frozen=True, slots=True)
 class Branch:
     """
     Dataclass for a branch, i.e. a pointer to a commit.
     """
 
-    name: str
+    local_name: str
     commit: Commit
     is_current: bool
+    remote: Path | None = None
+
+    @property
+    def name(self) -> str:
+        return self.local_name if self.remote is None else f"{self.remote}/{self.local_name}" 
 
 
 def write_branch(repo: Repository, branch: Branch) -> None:
@@ -136,9 +125,7 @@ def write_branch(repo: Repository, branch: Branch) -> None:
         repo: PyGitlet repository.
         branch: Branch to serialize and save.
     """
-
-    with (repo.branches / branch.name).open(mode="wb") as f:
-        pickle.dump(branch, f)
+    write_object(repo.branches / branch.name, branch)
     if branch.is_current:
         repo.current_branch.unlink(missing_ok=True)
         repo.current_branch.symlink_to(repo.branches / branch.name)
@@ -176,6 +163,18 @@ def set_branch_commit(
     write_branch(repo, branch)
 
 
+def write_object(path: Path, object: Blob | Commit | Branch) -> None:
+    """
+    Writes a blob to the repository blob folder.
+
+    Args:
+        path: Path object to write to.
+        object: Object to pickle and save.
+    """
+    with path.open(mode="wb") as f:
+        pickle.dump(object, f)
+
+
 def init(repo: Repository) -> None:
     """
     Initalizes a new PyGitlet repository in the given repository.
@@ -200,14 +199,13 @@ def init(repo: Repository) -> None:
     repo.blobs.mkdir()
     repo.stage.mkdir()
     repo.branches.mkdir()
-    repo.remotes.mkdir()
 
     aware_unix_epoch = datetime.fromtimestamp(0, tz=timezone.utc).astimezone()
     init_commit = Commit(aware_unix_epoch, "initial commit")
     init_branch = Branch("main", init_commit, True)
 
     write_branch(repo, init_branch)
-    write_commit(repo, init_commit)
+    write_object(repo.commits / init_commit.hash, init_commit)
 
 
 def add(repo: Repository, file_path: Path) -> None:
@@ -254,8 +252,7 @@ def add(repo: Repository, file_path: Path) -> None:
     ):
         stage_file_path.unlink(missing_ok=True)
     else:
-        with stage_file_path.open(mode="wb") as f:
-            pickle.dump(blob, f)
+        write_object(stage_file_path, blob)
 
 
 def commit(repo: Repository, message: str) -> None:
@@ -280,8 +277,7 @@ def commit(repo: Repository, message: str) -> None:
         with k.open(mode="rb") as f:
             blob: Blob = pickle.load(f)
         if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
-            with (repo.blobs / blob.hash).open(mode="wb") as f:
-                pickle.dump(blob, f)
+            write_object(repo.blobs / blob.hash, blob)
         if blob.diff != Diff.DELETED:
             blob_dict = blob_dict.set(blob.name, blob)
         else:
@@ -294,7 +290,7 @@ def commit(repo: Repository, message: str) -> None:
         [current_branch.commit],
         file_blob_map=blob_dict,
     )
-    write_commit(repo, commit)
+    write_object(repo.commits / commit.hash, commit)
 
     set_branch_commit(repo, current_branch, commit)
 
@@ -327,8 +323,7 @@ def remove(repo: Repository, file_path: Path) -> None:
     current_branch = get_current_branch(repo)
 
     blob = Blob(file_path, contents, Diff.DELETED)
-    with stage_file_path.open(mode="wb") as f:
-        pickle.dump(blob, f)
+    write_object(stage_file_path, blob)
 
     absolute_path.unlink()
 
@@ -430,13 +425,21 @@ def branch_status(repo: Repository) -> str:
     """
     branch_list = []
     for branch_path in repo.branches.iterdir():
-        if not branch_path.is_symlink():
+        if branch_path.is_symlink():
+            continue
+        if branch_path.is_file():
             with branch_path.open(mode="rb") as f:
                 branch: Branch = pickle.load(f)
             branch_list.append(branch)
-    sorted_branch_list = sorted(branch_list, key=lambda x: x.name)
+        elif branch_path.is_dir():
+            for remote_branch in branch_path.iterdir():
+                if not remote_branch.is_symlink():
+                    with remote_branch.open(mode="rb") as f:
+                        remote_branch_leaf: Branch = pickle.load(f)
+                    branch_list.append(remote_branch_leaf)
+    sorted_branch_list: list[Branch] = sorted(branch_list, key=lambda x: x.name)
     branch_string = "\n".join(
-        f"*{b.name}" if b.is_current else b.name for b in sorted_branch_list
+        f"*{b.name}" if b.is_current else str(b.name) for b in sorted_branch_list
     )
     if branch_string != "":
         branch_string += "\n"
@@ -735,13 +738,13 @@ def reset(repo: Repository, commit_id: str) -> None:
 
 def commit_history(commit: Commit) -> list[Commit]:
     """
-    Tracks the entire history of a commit using the topological sort of its DAG.
+    Tracks the entire history of a commit using BFS.
 
     Args:
         commit: Commit to start tracking history from.
 
     Returns:
-        List of commits in ascending topological sort.
+        List of commits in ascending topological sort with partial order of timestamp.
     """
     commit_bfs = []
     commit_queue: queue.SimpleQueue[Commit] = queue.SimpleQueue()
@@ -922,8 +925,7 @@ def merge_commit(
         with k.open(mode="rb") as f:
             blob: Blob = pickle.load(f)
         if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
-            with (repo.blobs / blob.hash).open(mode="wb") as f:
-                pickle.dump(blob, f)
+            write_object(repo.blobs / blob.hash, blob)
         if blob.diff != Diff.DELETED:
             blob_dict = blob_dict.set(blob.name, blob)
         else:
@@ -936,7 +938,7 @@ def merge_commit(
         [origin_branch.commit, target_branch.commit],
         file_blob_map=blob_dict,
     )
-    write_commit(repo, commit)
+    write_object(repo.commits / commit.hash, commit)
 
     set_branch_commit(repo, origin_branch, commit)
 
@@ -953,10 +955,12 @@ def add_remote(repo: Repository, remote_name: str, remote_path: Repository) -> N
     Raises:
         PyGitletException: If the remote name already exists.
     """
-    if (repo.remotes / remote_name).exists():
+    remote_folder = repo.branches / remote_name
+    if remote_folder.exists() and remote_folder.is_dir():
         raise PyGitletException("A remote with that name already exists.")
-    
-    (repo.remotes / remote_name).symlink_to(remote_path.gitlet)
+
+    remote_folder.mkdir()
+    (remote_folder / ".gitlet").symlink_to(remote_path.gitlet)
 
 
 def remove_remote(repo: Repository, remote_name: str) -> None:
@@ -970,7 +974,94 @@ def remove_remote(repo: Repository, remote_name: str) -> None:
     Raises:
         PyGitletException: If the remote name does not exist.
     """
-    if not (repo.remotes / remote_name).exists():
+    remote_folder = repo.branches / remote_name
+    if not remote_folder.exists():
         raise PyGitletException("A remote with that name does not exist.")
-    
-    (repo.remotes / remote_name).unlink()
+
+    for f in remote_folder.iterdir():
+        f.unlink()
+    remote_folder.rmdir()
+
+
+def push(repo: Repository, remote_name: str, remote_branch_name: str) -> None:
+    """
+    Pushes a local branch to a remote. Creates the branch on the remote if it doesn't exist.
+
+    Args:
+        repo: PyGitlet repository.
+        remote_name: Name of the remote on the local repo.
+        remote_branch_name: Name of the branch on the remote repo.
+
+    Raises:
+        PyGitletException: If the remote doesn't exist or the branch on the remote doesn't exist.
+    """
+    remote_folder = repo.branches / remote_name
+    remote_gitlet = (remote_folder / ".gitlet").resolve()
+    if not remote_gitlet.exists():
+        raise PyGitletException("Remote directory not found.")
+    repo_remote = Repository(remote_gitlet)
+
+    if not (repo_remote.branches / remote_branch_name).exists():
+        new_branch_to_remote = dataclasses.replace(get_current_branch(repo), is_current=False)
+        write_branch(repo_remote, new_branch_to_remote)
+        return
+
+    with (remote_folder / remote_branch_name).open(mode="rb") as f:
+        remote_branch: Branch = pickle.load(f)
+    current_commit = get_current_branch(repo).commit
+    current_commit_history = commit_history(current_commit)
+    current_commit_history.reverse()
+    if remote_branch.commit not in current_commit_history:
+        raise PyGitletException("Please pull down remote changes before pushing.")
+
+    future_commit_index = current_commit_history.index(remote_branch.commit)
+    commits_to_push = current_commit_history[future_commit_index + 1 :].copy()
+    for commit in commits_to_push:
+        write_object(repo_remote.commits / commit.hash, commit)
+    reset(repo_remote, current_commit.hash)
+
+
+def fetch(repo: Repository, remote_name: str, remote_branch_name: str) -> None:
+    """
+    Fetches a branch from the remote onto the local repository. Creates the branch if it doesn't exist.
+
+    Args:
+        repo: PyGitlet repository.
+        remote_name: Name of the remote on the local repo.
+        remote_branch_name: Name of the branch on the remote repo.
+    """
+    remote_folder = repo.branches / remote_name
+    remote_gitlet = (remote_folder / ".gitlet").resolve()
+    if not remote_gitlet.exists():
+        raise PyGitletException("Remote directory not found.")
+    repo_remote = Repository(remote_gitlet)
+
+    if not (repo_remote.branches / remote_branch_name).exists():
+        raise PyGitletException("That remote does not have that branch.")
+    with (repo_remote.branches / remote_branch_name).open(mode="rb") as f:
+        remote_branch: Branch = pickle.load(f)
+
+    remote_branch_history = commit_history(remote_branch.commit)
+    for commit in remote_branch_history:
+        write_object(repo.commits / commit.hash, commit)
+        for blob_hash, blob in commit.file_blob_map.items():
+            if not (repo.blobs / blob_hash).exists():
+                write_object(repo.blobs / blob_hash, blob)
+    remote_branch_on_local = Branch(
+        remote_branch_name, remote_branch_history[0], False, remote=Path(remote_name)
+    )
+    with (repo.branches / remote_branch_on_local.name).open(mode="wb") as f:
+        pickle.dump(remote_branch_on_local, f)
+
+
+def pull(repo: Repository, remote_name: str, remote_branch_name: str) -> None:
+    """
+    Pulls a repository from remote onto the local repository, merging onto the current branch.
+
+    Args:
+        repo: PyGitlet repository.
+        remote_name: Name of the remote on the local repo.
+        remote_branch_name: Name of the branch on the remote repo.
+    """
+    fetch(repo, remote_name, remote_branch_name)
+    merge(repo, f"{remote_name}/{remote_branch_name}")
