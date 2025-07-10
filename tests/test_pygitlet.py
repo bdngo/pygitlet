@@ -1189,18 +1189,24 @@ def test_push_directory_not_found(repo_commit_tmp_file1: commands.Repository) ->
         commands.push(repo_commit_tmp_file1, "origin", "main")
 
 
-def test_fetch_nonexistent_gitlet(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+def test_fetch_nonexistent_gitlet(
+    repo: commands.Repository, repo_remote: commands.Repository
+) -> None:
     commands.init(repo)
     commands.add_remote(repo, "remote", repo_remote)
     with pytest.raises(errors.PyGitletException, match=r"Remote directory not found\."):
         commands.fetch(repo, "remote", "main")
 
 
-def test_fetch_nonexistent_branch(repo: commands.Repository, repo_remote: commands.Repository) -> None:
+def test_fetch_nonexistent_branch(
+    repo: commands.Repository, repo_remote: commands.Repository
+) -> None:
     commands.init(repo)
     commands.init(repo_remote)
     commands.add_remote(repo, "remote", repo_remote)
-    with pytest.raises(errors.PyGitletException, match=r"That remote does not have that branch\."):
+    with pytest.raises(
+        errors.PyGitletException, match=r"That remote does not have that branch\."
+    ):
         commands.fetch(repo, "remote", "foo")
 
 
@@ -1239,6 +1245,7 @@ def test_fetch_push(
     assert commands.get_current_branch(repo).commit == r2_push_r1_commit
     assert commands.get_current_branch(repo).commit.parents[0] == r1_second_commit
 
+
 def test_push_branch_not_in_remote(
     repo: commands.Repository,
     repo_remote: commands.Repository,
@@ -1273,6 +1280,7 @@ def test_push_branch_not_in_remote(
 
     assert (repo.branches / "other").exists()
 
+
 def test_push_unpulled_changes(
     repo: commands.Repository,
     repo_remote: commands.Repository,
@@ -1292,8 +1300,12 @@ def test_push_unpulled_changes(
 
     commands.add_remote(repo_remote, "r1", repo)
     commands.fetch(repo_remote, "r1", "main")
-    with pytest.raises(errors.PyGitletException, match=r"Please pull down remote changes before pushing\."):
+    with pytest.raises(
+        errors.PyGitletException,
+        match=r"Please pull down remote changes before pushing\.",
+    ):
         commands.push(repo_remote, "r1", "main")
+
 
 def test_fetch_pull(
     repo: commands.Repository,

@@ -113,7 +113,11 @@ class Branch:
 
     @property
     def name(self) -> str:
-        return self.local_name if self.remote is None else f"{self.remote}/{self.local_name}" 
+        return (
+            self.local_name
+            if self.remote is None
+            else f"{self.remote}/{self.local_name}"
+        )
 
 
 def write_branch(repo: Repository, branch: Branch) -> None:
@@ -163,7 +167,7 @@ def set_branch_commit(
     write_branch(repo, branch)
 
 
-def write_object(path: Path, object: Blob | Commit | Branch) -> None:
+def write_object(path: Path, thing: Blob | Commit | Branch) -> None:
     """
     Writes a blob to the repository blob folder.
 
@@ -172,7 +176,7 @@ def write_object(path: Path, object: Blob | Commit | Branch) -> None:
         object: Object to pickle and save.
     """
     with path.open(mode="wb") as f:
-        pickle.dump(object, f)
+        pickle.dump(thing, f)
 
 
 def init(repo: Repository) -> None:
@@ -1002,7 +1006,9 @@ def push(repo: Repository, remote_name: str, remote_branch_name: str) -> None:
     repo_remote = Repository(remote_gitlet)
 
     if not (repo_remote.branches / remote_branch_name).exists():
-        new_branch_to_remote = dataclasses.replace(get_current_branch(repo), is_current=False)
+        new_branch_to_remote = dataclasses.replace(
+            get_current_branch(repo), is_current=False
+        )
         write_branch(repo_remote, new_branch_to_remote)
         return
 

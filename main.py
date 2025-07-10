@@ -1,3 +1,5 @@
+"""Main PyGitlet CLI."""
+
 import argparse
 import sys
 from pathlib import Path
@@ -72,7 +74,9 @@ def main() -> None:
     parser_push.add_argument("remote_name")
     parser_push.add_argument("branch_name")
 
-    parser_fetch = subparsers.add_parser("fetch", description="Fetch changes from remote")
+    parser_fetch = subparsers.add_parser(
+        "fetch", description="Fetch changes from remote"
+    )
     parser_fetch.add_argument("remote_name")
     parser_fetch.add_argument("branch_name")
 
