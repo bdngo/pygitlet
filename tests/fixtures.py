@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 
 from pygitlet import commands
 
@@ -14,15 +15,20 @@ def repo(tmp_path: Path) -> commands.Repository:
 
 
 @pytest.fixture
-def tmp_file1(tmp_path: Path) -> Path:
-    (tmp_path / "a.in").write_text("a\n")
-    return Path("a.in")
+def db(tmp_path: Path) -> sa.Engine:
+    return sa.create_engine(f"sqlite+pysqlite:///{tmp_path}/.gitlet/db.sqlite3")
 
 
 @pytest.fixture
-def tmp_file2(tmp_path: Path) -> Path:
+def tmp_file1(tmp_path: str) -> str:
+    (tmp_path / "a.in").write_text("a\n")
+    return "a.in"
+
+
+@pytest.fixture
+def tmp_file2(tmp_path: str) -> str:
     (tmp_path / "b.in").write_text("b\n")
-    return Path("b.in")
+    return "b.in"
 
 
 @pytest.fixture

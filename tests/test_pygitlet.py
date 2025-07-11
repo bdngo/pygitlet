@@ -5,19 +5,18 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy.orm import Session
 
 from pygitlet import commands, errors
 
 
-def test_init_successful(repo: commands.Repository) -> None:
+def test_init_successful(repo: commands.Repository, db: sa.Engine) -> None:
     commands.init(repo)
-    assert repo.gitlet.exists()
-    assert repo.commits.exists()
-    assert repo.blobs.exists()
-    assert repo.stage.exists()
-    assert repo.branches.exists()
-    assert repo.current_branch.exists()
-    assert commands.get_current_branch(repo).name == "main"
+    with Session(db) as session:
+        assert repo.gitlet.exists()
+        assert session.query(commands.Branch).first().name == "main"
+        assert session.query(commands.Commit).first().message == "initial commit"
 
 
 def test_init_unsuccessful(repo: commands.Repository) -> None:
@@ -29,18 +28,20 @@ def test_init_unsuccessful(repo: commands.Repository) -> None:
         commands.init(repo)
 
 
-def test_add(repo: commands.Repository, tmp_path: Path, tmp_file1: Path) -> None:
+def test_add(
+    repo: commands.Repository, db: sa.Engine, tmp_path: Path, tmp_file1: Path
+) -> None:
     commands.init(repo)
-    commands.add(repo, tmp_file1)
+    with Session(db) as session:
+        commands.add(repo, session, tmp_file1)
+        session.commit()
 
-    assert (repo.stage / tmp_file1.name).exists()
-    with (repo.stage / tmp_file1.name).open(mode="rb") as f:
-        blob: commands.Blob = pickle.load(f)
-    contents = (tmp_path / tmp_file1).read_text()
-
-    assert blob.name == tmp_file1
-    assert blob.contents == contents
-    assert blob.diff == commands.Diff.ADDED
+        blob = session.execute(
+            sa.select(commands.Blob).filter_by(name=tmp_file1, staged=True)
+        ).scalar_one()
+        contents = (tmp_path / tmp_file1).read_text()
+        assert blob.contents == contents
+        assert blob.diff == commands.Diff.ADDED
 
 
 def test_add_unchanged_file(
@@ -50,11 +51,12 @@ def test_add_unchanged_file(
     assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 0
 
 
-def test_add_missing_file(repo: commands.Repository, tmp_path: Path) -> None:
+def test_add_missing_file(repo: commands.Repository, db: sa.Engine) -> None:
     commands.init(repo)
 
     with pytest.raises(errors.PyGitletException, match=r"File does not exist\."):
-        commands.add(repo, tmp_path / "b.in")
+        with Session(db) as session:
+            commands.add(repo, session, "b.in")
 
 
 def test_add_duplicate_file(
@@ -76,26 +78,30 @@ def test_add_removed_file(
     assert blob.diff == commands.Diff.ADDED
 
 
-def test_commit(repo: commands.Repository, tmp_file1: Path) -> None:
-    commands.init(repo)
-    assert len(list(repo.commits.iterdir())) == 1
-    assert len(list(repo.blobs.iterdir())) == 0
+def test_commit(repo: commands.Repository, db: sa.Engine, tmp_file1: Path) -> None:
+    with Session(db) as session:
+        commands.init(repo)
+        all_commits = sa.select(commands.Commit)
+        all_blobs = sa.select(commands.Blob)
+        staged_blobs = all_blobs.filter_by(staged=True)
+        assert len(session.execute(all_commits).all()) == 1
+        assert len(session.execute(all_blobs).all()) == 0
 
-    commands.add(repo, tmp_file1)
-    assert len(list(repo.stage.iterdir())) == 1
+        commands.add(repo, session, tmp_file1)
+        assert len(session.execute(staged_blobs).all()) == 1
 
-    message = "commit a.in"
-    commands.commit(repo, message)
-    assert len(list(repo.commits.iterdir())) == 2
-    assert len(list(repo.blobs.iterdir())) == 1
-    assert len(list(repo.stage.iterdir())) == 0
+        message = "commit a.in"
+        commands.commit(repo, session, message)
+        assert len(session.execute(all_commits)) == 2
+        assert len(session.execute(all_blobs)) == 1
+        assert len(session.execute(staged_blobs)) == 0
 
-    current_branch = commands.get_current_branch(repo)
-    assert current_branch.commit.message == message
-    assert current_branch.commit.parents[0] == commands.Commit(
-        datetime.fromtimestamp(0, tz=timezone.utc).astimezone(),
-        "initial commit",
-    )
+        current_branch = commands.get_current_branch(session)
+        assert current_branch.commit.message == message
+        assert current_branch.commit.parents[0] == commands.Commit(
+            datetime.fromtimestamp(0, tz=timezone.utc).astimezone(),
+            "initial commit",
+        )
 
 
 def test_commit_changed_file(

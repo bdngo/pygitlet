@@ -4,6 +4,9 @@ import argparse
 import sys
 from pathlib import Path
 
+import sqlalchemy as sa
+from sqlalchemy.orm import Session
+
 from pygitlet import commands, errors
 
 
@@ -29,7 +32,7 @@ def main() -> None:
     parser_remove = subparsers.add_parser(
         "rm", description="Remove staged or committed files"
     )
-    parser_remove.add_argument("file", type=Path)
+    parser_remove.add_argument("file")
 
     subparsers.add_parser("log", description="Log of current head commit")
     subparsers.add_parser("global-log", description="Log of all commits")
@@ -89,51 +92,59 @@ def main() -> None:
     try:
         if args.subcommand != "init" and not repo.gitlet.exists():
             raise errors.PyGitletException("Not in an initialized Gitlet directory.")
-        match args.subcommand:
-            case "init":
-                commands.init(repo)
-            case "add":
-                commands.add(repo, args.file)
-            case "commit":
-                commands.commit(repo, args.message)
-            case "rm":
-                commands.remove(repo, args.file)
-            case "log":
-                print(commands.log(repo))
-            case "global-log":
-                print(commands.global_log(repo))
-            case "status":
-                print(commands.status(repo))
-            case "checkout":
-                match args.checkout_args:
-                    case ["--", file]:
-                        commands.checkout_file(repo, file)
-                    case [commit_id, file]:
-                        commands.checkout_commit(repo, commit_id, file)
-                    case [branch]:
-                        commands.checkout_branch(repo, branch)
+        elif args.subcommand == "init":
+            commands.init(repo)
+        else:
+            engine = sa.create_engine("sqlite+pysqlite:///.gitlet/db.sqlite3")
+            with Session(engine) as session:
+                match args.subcommand:
+                    case "add":
+                        commands.add(session, args.file)
+                    case "commit":
+                        commands.commit(session, args.message)
+                    case "rm":
+                        commands.remove(session, args.file)
+                    case "log":
+                        print(commands.log(session))
+                    case "global-log":
+                        print(commands.global_log(session))
+                    case "status":
+                        print(commands.status(session))
+                    case "checkout":
+                        match args.checkout_args:
+                            case ["--", file]:
+                                commands.checkout_file(repo, file)
+                            case [commit_id, file]:
+                                commands.checkout_commit(repo, commit_id, file)
+                            case [branch]:
+                                commands.checkout_branch(repo, branch)
+                            case _:
+                                raise errors.PyGitletException(
+                                    "Unreachable checkout syntax"
+                                )
+                    case "branch":
+                        commands.branch(repo, args.branch)
+                    case "rm-branch":
+                        commands.remove_branch(repo, args.branch)
+                    case "reset":
+                        commands.reset(repo, args.commit)
+                    case "merge":
+                        commands.merge(repo, args.branch)
+                    case "add-remote":
+                        commands.add_remote(repo, args.remote_name, args.remote_path)
+                    case "rm-remote":
+                        commands.remove_remote(repo, args.remote_name)
+                    case "push":
+                        commands.push(repo, args.remote_name, args.branch_name)
+                    case "fetch":
+                        commands.fetch(repo, args.remote_name, args.branch_name)
+                    case "pull":
+                        commands.pull(repo, args.remote_name, args.branch_name)
                     case _:
-                        raise errors.PyGitletException("Unreachable checkout syntax")
-            case "branch":
-                commands.branch(repo, args.branch)
-            case "rm-branch":
-                commands.remove_branch(repo, args.branch)
-            case "reset":
-                commands.reset(repo, args.commit)
-            case "merge":
-                commands.merge(repo, args.branch)
-            case "add-remote":
-                commands.add_remote(repo, args.remote_name, args.remote_path)
-            case "rm-remote":
-                commands.remove_remote(repo, args.remote_name)
-            case "push":
-                commands.push(repo, args.remote_name, args.branch_name)
-            case "fetch":
-                commands.fetch(repo, args.remote_name, args.branch_name)
-            case "pull":
-                commands.pull(repo, args.remote_name, args.branch_name)
-            case _:
-                raise errors.PyGitletException("No command with that name exists.")
+                        raise errors.PyGitletException(
+                            "No command with that name exists."
+                        )
+                session.commit()
     except errors.PyGitletException as e:
         print(e.message, file=sys.stderr)
 

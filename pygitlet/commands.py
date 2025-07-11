@@ -4,64 +4,39 @@ import dataclasses
 import hashlib
 import pickle
 import queue
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum, auto
 from io import StringIO
 from pathlib import Path
 from textwrap import dedent
-from typing import Self
+from typing import Any
 
 import sqlalchemy as sa
-from frozendict import frozendict
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     MappedAsDataclass,
+    Session,
     mapped_column,
     relationship,
 )
 
 from pygitlet.errors import PyGitletException
 
+@dataclass(frozen=True, slots=True)
+class Repository:
+    """Root class for Gitlet repo."""
+
+    gitlet: Path
+
 
 class Base(DeclarativeBase, MappedAsDataclass):
     pass
 
 
-@dataclass(frozen=True, slots=True)
-class Repository:
-    """
-    Dataclass for holding all PyGitlet folders.
-    """
-
-    gitlet: Path
-
-    @property
-    def commits(self) -> Path:
-        return self.gitlet / "commits"
-
-    @property
-    def blobs(self) -> Path:
-        return self.gitlet / "blobs"
-
-    @property
-    def stage(self) -> Path:
-        return self.gitlet / "stage"
-
-    @property
-    def branches(self) -> Path:
-        return self.gitlet / "branches"
-
-    @property
-    def current_branch(self) -> Path:
-        return self.branches / ".current-branch"
-
-
 class Diff(StrEnum):
-    """
-    Enum for file diff types.
-    """
+    """Enum for file diff types."""
 
     ADDED = auto()
     DELETED = auto()
@@ -69,19 +44,36 @@ class Diff(StrEnum):
 
 
 def hash_contents(contents: str) -> str:
-    """Returns SHA-1 hash of a string."""
+    """Returns SHA-1 hash of a string.
+    
+    Args:
+        contents: String contents to hash.
+
+    Returns:
+        SHA-1 hash of string after UTF-8 encoding.
+    """
     return hashlib.sha1(contents.encode(encoding="utf-8")).hexdigest()
 
 
-@dataclass(frozen=True, slots=True)
-class Blob:
-    """
-    Dataclass for file blobs.
-    """
+blob_to_commit = sa.Table(
+    "blob_to_commit",
+    Base.metadata,
+    sa.Column("blob_id", sa.Integer, sa.ForeignKey("blob.id"), primary_key=True),
+    sa.Column("commit_id", sa.Integer, sa.ForeignKey("commit.id"), primary_key=True),
+)
 
-    name: Path
-    contents: str
-    diff: Diff
+
+class Blob(Base):
+    """Dataclass for file blobs."""
+
+    __tablename__ = "blob"
+
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    name: Mapped[str]
+    contents: Mapped[str]
+    diff: Mapped[Diff]
+    staged: Mapped[bool]
+    commit: Mapped[list["Commit"]] = relationship(init=False, secondary=blob_to_commit, back_populates="file_blob_map")
 
     @property
     def hash(self) -> str:
@@ -89,21 +81,40 @@ class Blob:
         return hash_contents(self.contents)
 
 
-@dataclass(frozen=True, slots=True)
-class Commit:
+commit_to_parent = sa.Table(
+    "commit_to_parent",
+    Base.metadata,
+    sa.Column("commit_id", sa.Integer, sa.ForeignKey("commit.id"), primary_key=True),
+    sa.Column("parent_id", sa.Integer, sa.ForeignKey("commit.id"), primary_key=True),
+)
+
+
+class Commit(Base):
     """
     Dataclass for commits, with mapping
     from relative file paths to blobs.
     """
 
-    timestamp: datetime
-    message: str
-    parents: list[Self] = field(default_factory=list)
-    file_blob_map: frozendict[Path, Blob] = frozendict()
+    __tablename__ = "commit"
+
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    timestamp: Mapped[datetime]
+    message: Mapped[str]
+    parents: Mapped["Commit"] = relationship(
+        init=False,
+        secondary=commit_to_parent,
+        primaryjoin=id == commit_to_parent.c.commit_id,
+        secondaryjoin=id == commit_to_parent.c.parent_id,
+    )
+    file_blob_map: Mapped[list[Blob]] = relationship(init=False, secondary=blob_to_commit, back_populates="commit")
 
     @property
     def hash(self) -> str:
-        """Returns SHA-1 hash of serialized commit."""
+        """Returns SHA-1 hash of serialized commit.
+
+        Returns:
+            SHA-1 hash of commit object.
+        """
         commit_serialized = pickle.dumps(self)
         return hashlib.sha1(commit_serialized).hexdigest()
 
@@ -112,19 +123,21 @@ class Commit:
         return len(self.parents) > 1
 
 
-@dataclass(frozen=True, slots=True)
-class Branch:
-    """
-    Dataclass for a branch, i.e. a pointer to a commit.
-    """
+class Branch(Base):
+    """Dataclass for a branch, i.e. a pointer to a commit."""
 
-    local_name: str
-    commit: Commit
-    is_current: bool
-    remote: Path | None = None
+    __tablename__ = "branch"
+
+    id: Mapped[int] = mapped_column(init=False, primary_key=True)
+    local_name: Mapped[str]
+    commit: Mapped[Commit] = relationship()
+    commit_id: Mapped[int] = mapped_column(sa.ForeignKey("commit.id"), init=False)
+    is_current: Mapped[bool]
+    remote: Mapped[str] = mapped_column(default=None, nullable=True)
 
     @property
     def name(self) -> str:
+        """Get name of branch, accounting for remote branches."""
         return (
             self.local_name
             if self.remote is None
@@ -132,68 +145,34 @@ class Branch:
         )
 
 
-def write_branch(repo: Repository, branch: Branch) -> None:
-    """
-    Serializes and saves a branch to the repository branch folder,
-    and reassigns the current branch symlink if necessary.
+def get_current_branch(db: Session) -> Branch:
+    """Utility function to get the current branch.
 
     Args:
-        repo: PyGitlet repository.
-        branch: Branch to serialize and save.
-    """
-    write_object(repo.branches / branch.name, branch)
-    if branch.is_current:
-        repo.current_branch.unlink(missing_ok=True)
-        repo.current_branch.symlink_to(repo.branches / branch.name)
-
-
-def get_current_branch(repo: Repository) -> Branch:
-    """
-    Utility function to get the current branch
-    based on the branch folder symlink.
-
-    Args:
-        repo: PyGitlet repository.
+        db: Database session.
 
     Returns:
         The current working branch.
     """
-    with repo.current_branch.open(mode="rb") as f:
-        return pickle.load(f)
+    return db.execute(sa.select(Branch).filter_by(is_current=True)).scalar_one()
 
 
 def set_branch_commit(
-    repo: Repository,
+    db: Session,
     branch: Branch,
     commit: Commit,
 ) -> None:
-    """
-    Moves a branch to a given commit.
+    """Moves a branch to a given commit.
 
     Args:
-        repo: PyGitlet repository.
+        db: Database session.
         branch: Branch to move.
         commit: Commit to assign to branch.
     """
-    branch = dataclasses.replace(branch, commit=commit)
-    write_branch(repo, branch)
-
-
-def write_object(path: Path, thing: Blob | Commit | Branch) -> None:
-    """
-    Writes a blob to the repository blob folder.
-
-    Args:
-        path: Path object to write to.
-        object: Object to pickle and save.
-    """
-    with path.open(mode="wb") as f:
-        pickle.dump(thing, f)
-
+    db.execute(sa.update(Branch).filter_by(name=branch.name).values(commit=commit))
 
 def init(repo: Repository) -> None:
-    """
-    Initalizes a new PyGitlet repository in the given repository.
+    """Initalizes a new PyGitlet repository in the given repository.
 
     Args:
         repo: Folder to create a PyGitlet repository in.
@@ -211,43 +190,40 @@ def init(repo: Repository) -> None:
         )
 
     repo.gitlet.mkdir()
-    repo.commits.mkdir()
-    repo.blobs.mkdir()
-    repo.stage.mkdir()
-    repo.branches.mkdir()
+    db_path = repo.gitlet / "db.sqlite3"
+    db_path.touch()
+    engine = sa.create_engine(f"sqlite+pysqlite:///{db_path}")
 
     aware_unix_epoch = datetime.fromtimestamp(0, tz=timezone.utc).astimezone()
     init_commit = Commit(aware_unix_epoch, "initial commit")
     init_branch = Branch("main", init_commit, True)
 
-    write_branch(repo, init_branch)
-    write_object(repo.commits / init_commit.hash, init_commit)
+    Base.metadata.create_all(bind=engine)
+    with Session(engine) as session:
+        session.add(init_branch)
+        session.add(init_commit)
+        session.commit()
 
 
-def add(repo: Repository, file_path: Path) -> None:
-    """
-    Stages a file. Overwrites existing staged files
+def add(repo: Repository, db: Session, file_path: str) -> None:
+    """Stages a file. Overwrites existing staged files
     if the same named file exists and differs.
     If identical, the file is unstaged.
     If previously staged for removal, undoes this.
 
     Args:
         repo: PyGitlet repository.
+        db: Database session.
         file_path: Relative path to file to be staged.
 
     Raises:
         PyGitletException: If the requested file doesn't exist.
     """
-    stage_file_path = repo.stage / file_path
-    if stage_file_path.exists():
-        with stage_file_path.open(mode="rb") as f:
-            potentially_staged_for_removal: Blob = pickle.load(f)
-        if potentially_staged_for_removal.diff == Diff.DELETED:
-            potentially_staged_for_removal = dataclasses.replace(
-                potentially_staged_for_removal, diff=Diff.ADDED
-            )
-            with stage_file_path.open(mode="wb") as f:
-                pickle.dump(potentially_staged_for_removal, f)
+    staged_blob = db.execute(sa.select(Blob).filter_by(name=file_path)).first()
+    if staged_blob is not None and staged_blob.staged:
+        if staged_blob.diff == Diff.DELETED:
+            staged_blob.diff = Diff.ADDED
+            db.commit()
         return
 
     absolute_path = repo.gitlet.parent / file_path
@@ -255,50 +231,47 @@ def add(repo: Repository, file_path: Path) -> None:
         raise PyGitletException("File does not exist.")
 
     contents = absolute_path.read_text()
-    current_commit = get_current_branch(repo).commit
+    current_commit = get_current_branch(db).commit
 
     blob = Blob(
         file_path,
         contents,
         (Diff.MODIFIED if file_path in current_commit.file_blob_map else Diff.ADDED),
+        True
     )
     if (
         file_path in current_commit.file_blob_map
         and current_commit.file_blob_map[file_path].hash == blob.hash
     ):
-        stage_file_path.unlink(missing_ok=True)
+        db.execute(sa.delete(Blob).filter_by(Blob.blob_id == blob.id))
     else:
-        write_object(stage_file_path, blob)
+        db.add(blob)
 
 
-def commit(repo: Repository, message: str) -> None:
-    """
-    Commits changes to the repository.
+def commit(repo: Repository, db: Session, message: str) -> None:
+    """Commits changes to the repository.
 
     Args:
         repo: PyGitlet repository.
+        db: Database session.
         message: Commit message.
 
     Raises:
         PyGitletException: If the stage is empty or there is no commit message.
     """
-    if list(repo.stage.iterdir()) == []:
+    all_blobs = sa.select(Blob)
+    staged_blobs = all_blobs.filter_by(staged=True)
+    if len(db.execute(staged_blobs).all()) == 0:
         raise PyGitletException("No changes added to the commit.")
     elif message == "":
         raise PyGitletException("Please enter a commit message.")
 
-    current_branch = get_current_branch(repo)
-    blob_dict = current_branch.commit.file_blob_map
-    for k in repo.stage.iterdir():
-        with k.open(mode="rb") as f:
-            blob: Blob = pickle.load(f)
-        if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
-            write_object(repo.blobs / blob.hash, blob)
-        if blob.diff != Diff.DELETED:
-            blob_dict = blob_dict.set(blob.name, blob)
-        else:
-            blob_dict = blob_dict.delete(blob.name)
-        k.unlink()
+    current_branch = get_current_branch(db)
+    current_commit_tracked = current_branch.commit.file_blob_map
+    for blob in db.execute(staged_blobs).scalars():
+        if db.execute(all_blobs.filter_by(name=blob.name, staged=False)).first() is not None:
+            blob.diff = Diff.MODIFIED
+        blob.staged = False
 
     commit = Commit(
         datetime.now().astimezone(),
@@ -399,8 +372,7 @@ def global_log(repo: Repository) -> str:
     """
     log = StringIO()
     for serialized_commit_path in repo.commits.iterdir():
-        with serialized_commit_path.open(mode="rb") as f:
-            commit: Commit = pickle.load(f)
+        commit: Commit = read_object(serialized_commit_path)
         log.write(format_commit(commit))
     log.seek(0)
     return log.read().strip()
@@ -420,8 +392,7 @@ def find(repo: Repository, message: str) -> str:
     """
     filtered_list = []
     for serialized_commit_path in repo.commits.iterdir():
-        with serialized_commit_path.open(mode="rb") as f:
-            commit: Commit = pickle.load(f)
+        commit: Commit = read_object(serialized_commit_path)
         if commit.message == message:
             filtered_list.append(commit.hash)
     if filtered_list == []:
@@ -444,14 +415,12 @@ def branch_status(repo: Repository) -> str:
         if branch_path.is_symlink():
             continue
         if branch_path.is_file():
-            with branch_path.open(mode="rb") as f:
-                branch: Branch = pickle.load(f)
+            branch: Branch = read_object(branch_path)
             branch_list.append(branch)
         elif branch_path.is_dir():
             for remote_branch in branch_path.iterdir():
                 if not remote_branch.is_symlink():
-                    with remote_branch.open(mode="rb") as f:
-                        remote_branch_leaf: Branch = pickle.load(f)
+                    remote_branch_leaf: Branch = read_object(remote_branch)
                     branch_list.append(remote_branch_leaf)
     sorted_branch_list: list[Branch] = sorted(branch_list, key=lambda x: x.name)
     branch_string = "\n".join(
@@ -474,8 +443,7 @@ def stage_status(repo: Repository) -> tuple[str, str]:
     """
     staged_blobs = []
     for blob_path in repo.stage.iterdir():
-        with blob_path.open(mode="rb") as f:
-            blob: Blob = pickle.load(f)
+        blob: Blob = read_object(blob_path)
         staged_blobs.append(blob)
     staged_files = "\n".join(
         sorted(str(b.name) for b in staged_blobs if b.diff != Diff.DELETED)
@@ -502,8 +470,7 @@ def modified_status(repo: Repository) -> str:
     """
     staged_blobs = []
     for blob_path in repo.stage.iterdir():
-        with blob_path.open(mode="rb") as f:
-            blob: Blob = pickle.load(f)
+        blob: Blob = read_object(blob_path)
         staged_blobs.append(blob)
 
     modified_files_with_diff = {}
@@ -619,8 +586,7 @@ def checkout_commit(repo: Repository, commit_id: str, file_path: Path) -> None:
     """
     commit_glob = repo.commits.glob(f"{commit_id}*")
     try:
-        with next(commit_glob).open(mode="rb") as f:
-            found_commit: Commit = pickle.load(f)
+        found_commit: Commit = read_object(next(commit_glob))
     except StopIteration as e:
         raise PyGitletException("No commit with that id exists.") from e
 
@@ -648,8 +614,7 @@ def checkout_branch(repo: Repository, branch_name: str) -> None:
     if current_branch.name == branch_name:
         raise PyGitletException("No need to checkout the current branch.")
 
-    with (repo.branches / branch_name).open(mode="rb") as f:
-        target_branch: Branch = pickle.load(f)
+    target_branch: Branch = read_object(repo.branches / branch_name)
 
     for file_name, blob in target_branch.commit.file_blob_map.items():
         absolute_path = repo.gitlet.parent / file_name
@@ -728,8 +693,7 @@ def reset(repo: Repository, commit_id: str) -> None:
         raise PyGitletException("No commit with that id exists.")
 
     current_commit = get_current_branch(repo).commit
-    with (repo.commits / commit_id).open(mode="rb") as f:
-        target_commit: Commit = pickle.load(f)
+    target_commit: Commit = read_object(repo.commits / commit_id)
 
     for file_name, blob in target_commit.file_blob_map.items():
         absolute_path = repo.gitlet.parent / file_name
@@ -830,8 +794,7 @@ def merge(repo: Repository, target_branch_name: str) -> None:
     if get_current_branch(repo).name == target_branch_name:
         raise PyGitletException("Cannot merge a branch with itself.")
 
-    with (repo.branches / target_branch_name).open(mode="rb") as f:
-        target_branch: Branch = pickle.load(f)
+    target_branch: Branch = read_object(repo.branches / target_branch_name)
     origin_branch_commit = get_current_branch(repo).commit
     target_branch_commit = target_branch.commit
     lca = latest_common_ancestor(origin_branch_commit, target_branch_commit)
@@ -938,8 +901,7 @@ def merge_commit(
     """
     blob_dict = origin_branch.commit.file_blob_map
     for k in repo.stage.iterdir():
-        with k.open(mode="rb") as f:
-            blob: Blob = pickle.load(f)
+        blob: Blob = read_object(k)
         if not (repo.blobs / blob.hash).exists() or blob.diff != Diff.DELETED:
             write_object(repo.blobs / blob.hash, blob)
         if blob.diff != Diff.DELETED:
@@ -1024,8 +986,7 @@ def push(repo: Repository, remote_name: str, remote_branch_name: str) -> None:
         write_branch(repo_remote, new_branch_to_remote)
         return
 
-    with (remote_folder / remote_branch_name).open(mode="rb") as f:
-        remote_branch: Branch = pickle.load(f)
+    remote_branch: Branch = read_object(remote_folder / remote_branch_name)
     current_commit = get_current_branch(repo).commit
     current_commit_history = commit_history(current_commit)
     current_commit_history.reverse()
@@ -1056,8 +1017,7 @@ def fetch(repo: Repository, remote_name: str, remote_branch_name: str) -> None:
 
     if not (repo_remote.branches / remote_branch_name).exists():
         raise PyGitletException("That remote does not have that branch.")
-    with (repo_remote.branches / remote_branch_name).open(mode="rb") as f:
-        remote_branch: Branch = pickle.load(f)
+    remote_branch: Branch = read_object(repo_remote.branches / remote_branch_name)
 
     remote_branch_history = commit_history(remote_branch.commit)
     for commit in remote_branch_history:
