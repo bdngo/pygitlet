@@ -6,14 +6,14 @@ from textwrap import dedent
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from pygitlet import commands, errors
 
 
-def test_init_successful(repo: commands.Repository, db: sa.Engine) -> None:
+def test_init_successful(repo: commands.Repository, db: sessionmaker[Session]) -> None:
     commands.init(repo)
-    with Session(db) as session:
+    with db() as session:
         assert repo.gitlet.exists()
         assert session.query(commands.Branch).first().name == "main"
         assert session.query(commands.Commit).first().message == "initial commit"
@@ -29,10 +29,13 @@ def test_init_unsuccessful(repo: commands.Repository) -> None:
 
 
 def test_add(
-    repo: commands.Repository, db: sa.Engine, tmp_path: Path, tmp_file1: Path
+    repo: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: str,
 ) -> None:
-    commands.init(repo)
-    with Session(db) as session:
+    with db() as session:
+        commands.init(repo)
         commands.add(repo, session, tmp_file1)
         session.commit()
 
@@ -45,149 +48,200 @@ def test_add(
 
 
 def test_add_unchanged_file(
-    repo_commit_tmp_file1: commands.Repository, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_file1: str,
 ) -> None:
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 0
+    with db() as session:
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        assert (
+            session.execute(sa.select(commands.Blob).filter_by(staged=True)).first()
+            is None
+        )
 
 
-def test_add_missing_file(repo: commands.Repository, db: sa.Engine) -> None:
+def test_add_missing_file(repo: commands.Repository, db: sessionmaker[Session]) -> None:
     commands.init(repo)
 
     with pytest.raises(errors.PyGitletException, match=r"File does not exist\."):
-        with Session(db) as session:
+        with db() as session:
             commands.add(repo, session, "b.in")
 
 
 def test_add_duplicate_file(
-    repo_commit_tmp_file1: commands.Repository, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_file1: str,
 ) -> None:
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 0
+    with db() as session:
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        assert (
+            session.execute(sa.select(commands.Blob).filter_by(staged=True)).first()
+            is None
+        )
 
 
 def test_add_removed_file(
-    repo_commit_tmp_file1: commands.Repository, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_file1: Path,
 ) -> None:
-    commands.remove(repo_commit_tmp_file1, tmp_file1)
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 1
+    with db() as session:
+        commands.remove(repo_commit_tmp_file1, session, tmp_file1)
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        assert (
+            len(session.execute(sa.select(commands.Blob).filter_by(staged=True)).all())
+            == 1
+        )
 
-    with (repo_commit_tmp_file1.stage / tmp_file1).open(mode="rb") as f:
-        blob: commands.Blob = pickle.load(f)
-    assert blob.diff == commands.Diff.ADDED
+        blob = session.execute(
+            sa.select(commands.Blob).filter_by(name=tmp_file1, staged=True)
+        ).scalar_one()
+        assert blob.diff == commands.Diff.ADDED
 
 
-def test_commit(repo: commands.Repository, db: sa.Engine, tmp_file1: Path) -> None:
-    with Session(db) as session:
+def test_commit(
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: str
+) -> None:
+    with db() as session:
         commands.init(repo)
         all_commits = sa.select(commands.Commit)
         all_blobs = sa.select(commands.Blob)
         staged_blobs = all_blobs.filter_by(staged=True)
         assert len(session.execute(all_commits).all()) == 1
         assert len(session.execute(all_blobs).all()) == 0
+        init_commit = commands.get_current_branch(session).commit
 
         commands.add(repo, session, tmp_file1)
         assert len(session.execute(staged_blobs).all()) == 1
 
         message = "commit a.in"
         commands.commit(repo, session, message)
-        assert len(session.execute(all_commits)) == 2
-        assert len(session.execute(all_blobs)) == 1
-        assert len(session.execute(staged_blobs)) == 0
+        session.commit()
+        assert len(session.execute(all_commits).all()) == 2
+        assert len(session.execute(all_blobs).all()) == 1
+        assert len(session.execute(staged_blobs).all()) == 0
 
         current_branch = commands.get_current_branch(session)
         assert current_branch.commit.message == message
-        assert current_branch.commit.parents[0] == commands.Commit(
-            datetime.fromtimestamp(0, tz=timezone.utc).astimezone(),
-            "initial commit",
-        )
+        assert current_branch.commit.parents[0] == init_commit
+        blob = session.execute(all_blobs).scalar_one()
+        assert blob in current_branch.commit.file_blob_map
 
 
 def test_commit_changed_file(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: str,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed a.in")
+    with db() as session:
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed a.in")
 
-    assert len(list(repo_commit_tmp_file1.commits.iterdir())) == 3
-    assert len(list(repo_commit_tmp_file1.blobs.iterdir())) == 2
+        all_commits = sa.select(commands.Commit)
+        all_blobs = sa.select(commands.Blob)
+        assert len(session.execute(all_commits).all()) == 3
+        assert len(session.execute(all_blobs).all()) == 2
 
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    assert current_commit.message == "changed a.in"
-    assert current_commit.parents[0].message == "commit a.in"
+        current_commit = commands.get_current_branch(session).commit
+        assert current_commit.message == "changed a.in"
+        assert current_commit.parents[0].message == "commit a.in"
 
-    with (
-        repo_commit_tmp_file1.blobs / current_commit.file_blob_map[tmp_file1].hash
-    ).open(mode="rb") as f:
-        changed_blob: commands.Blob = pickle.load(f)
-    assert changed_blob.diff == commands.Diff.MODIFIED
+        changed_blob = session.execute(
+            all_blobs.filter_by(name=tmp_file1, contents="b\n")
+        ).scalar_one()
+        assert changed_blob.diff == commands.Diff.MODIFIED
 
 
 def test_commit_removed_file(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: str,
 ) -> None:
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    with (
-        repo_commit_tmp_file1.blobs / current_commit.file_blob_map[tmp_file1].hash
-    ).open(mode="rb") as f:
-        tracked_blob: commands.Blob = pickle.load(f)
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.remove(repo_commit_tmp_file1, tmp_file1)
-    assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 1
+    with db() as session:
+        tracked_blob = session.execute(
+            sa.select(commands.Blob).filter_by(name=tmp_file1)
+        ).scalar_one()
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.remove(repo_commit_tmp_file1, session, tmp_file1)
+        assert (
+            len(session.execute(sa.select(commands.Blob).filter_by(staged=True)).all())
+            == 1
+        )
 
-    with (repo_commit_tmp_file1.stage / tmp_file1).open(mode="rb") as f:
-        blob: commands.Blob = pickle.load(f)
-    assert blob.name == tracked_blob.name
-    assert blob.contents == "b\n"
-    assert blob.diff == commands.Diff.DELETED
+        blob = session.execute(
+            sa.select(commands.Blob).filter_by(staged=True, name=tmp_file1)
+        ).scalar_one()
+        assert blob.name == tracked_blob.name
+        assert blob.contents == "b\n"
+        assert blob.diff == commands.Diff.DELETED
 
 
 def test_commit_multiple_files(
-    repo: commands.Repository, tmp_file1: Path, tmp_file2: Path
+    repo: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_file1: str,
+    tmp_file2: str,
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        commands.add(repo, session, tmp_file1)
+        commands.add(repo, session, tmp_file2)
+        commands.commit(repo, session, "commit a.in and b.in")
+
+        assert len(session.execute(sa.select(commands.Commit)).all()) == 2
+        assert len(session.execute(sa.select(commands.Blob)).all()) == 2
+
+
+def test_commit_empty_stage(
+    repo: commands.Repository, db: sessionmaker[Session]
 ) -> None:
     commands.init(repo)
-    commands.add(repo, tmp_file1)
-    commands.add(repo, tmp_file2)
-    commands.commit(repo, "commit a.in and b.in")
+    with db() as session:
+        with pytest.raises(
+            errors.PyGitletException, match=r"No changes added to the commit\."
+        ):
+            commands.commit(repo, session, "empty stage")
 
-    assert len(list(repo.commits.iterdir())) == 2
-    assert len(list(repo.blobs.iterdir())) == 2
 
-
-def test_commit_empty_stage(repo: commands.Repository) -> None:
+def test_commit_empty_message(
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: str
+) -> None:
     commands.init(repo)
-    with pytest.raises(
-        errors.PyGitletException, match=r"No changes added to the commit\."
-    ):
-        commands.commit(repo, "empty stage")
+    with db() as session:
+        commands.add(repo, session, tmp_file1)
+        with pytest.raises(
+            errors.PyGitletException, match=r"Please enter a commit message\."
+        ):
+            commands.commit(repo, session, "")
 
 
-def test_commit_empty_message(repo: commands.Repository, tmp_file1: Path) -> None:
-    commands.init(repo)
-    commands.add(repo, tmp_file1)
-    with pytest.raises(
-        errors.PyGitletException, match=r"Please enter a commit message\."
-    ):
-        commands.commit(repo, "")
-
-
-def test_remove(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+def test_remove_blah(
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: str,
 ) -> None:
     (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.remove(repo_commit_tmp_file1, tmp_file1)
+    with db() as session:
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.remove(repo_commit_tmp_file1, session, tmp_file1)
 
-    assert not (tmp_path / tmp_file1).exists()
-    assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 1
+        assert not (tmp_path / tmp_file1).exists()
+        assert (
+            len(session.execute(sa.select(commands.Blob).filter_by(staged=True)).all())
+            == 1
+        )
 
-    with (repo_commit_tmp_file1.stage / tmp_file1.name).open(mode="rb") as f:
-        removed_blob: commands.Blob = pickle.load(f)
-    assert removed_blob.name == tmp_file1
-    assert removed_blob.diff == commands.Diff.DELETED
+        removed_blob = session.execute(
+            sa.select(commands.Blob).filter_by(staged=True)
+        ).scalar_one()
+        assert removed_blob.name == tmp_file1
+        assert removed_blob.diff == commands.Diff.DELETED
 
 
 def test_remove_missing_file(repo: commands.Repository) -> None:
