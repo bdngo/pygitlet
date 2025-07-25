@@ -99,11 +99,11 @@ def main() -> None:
             with Session(engine) as session:
                 match args.subcommand:
                     case "add":
-                        commands.add(session, args.file)
+                        commands.add(repo, session, args.file)
                     case "commit":
-                        commands.commit(session, args.message)
+                        commands.commit(repo, session, args.message)
                     case "rm":
-                        commands.remove(session, args.file)
+                        commands.remove(repo, session, args.file)
                     case "log":
                         print(commands.log(session))
                     case "global-log":
