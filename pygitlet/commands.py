@@ -10,7 +10,6 @@ from enum import StrEnum, auto
 from io import StringIO
 from pathlib import Path
 from textwrap import dedent
-from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.orm import (
@@ -23,6 +22,7 @@ from sqlalchemy.orm import (
 )
 
 from pygitlet.errors import PyGitletException
+
 
 @dataclass(frozen=True, slots=True)
 class Repository:
@@ -45,7 +45,7 @@ class Diff(StrEnum):
 
 def hash_contents(contents: str) -> str:
     """Returns SHA-1 hash of a string.
-    
+
     Args:
         contents: String contents to hash.
 
@@ -73,7 +73,9 @@ class Blob(Base):
     contents: Mapped[str]
     diff: Mapped[Diff]
     staged: Mapped[bool]
-    commit: Mapped[list["Commit"]] = relationship(init=False, secondary=blob_to_commit, back_populates="file_blob_map")
+    commit: Mapped[list["Commit"]] = relationship(
+        init=False, secondary=blob_to_commit, back_populates="file_blob_map"
+    )
 
     @property
     def hash(self) -> str:
@@ -100,13 +102,14 @@ class Commit(Base):
     id: Mapped[int] = mapped_column(init=False, primary_key=True)
     timestamp: Mapped[datetime]
     message: Mapped[str]
-    parents: Mapped["Commit"] = relationship(
-        init=False,
+    parents: Mapped[list["Commit"]] = relationship(
         secondary=commit_to_parent,
         primaryjoin=id == commit_to_parent.c.commit_id,
         secondaryjoin=id == commit_to_parent.c.parent_id,
     )
-    file_blob_map: Mapped[list[Blob]] = relationship(init=False, secondary=blob_to_commit, back_populates="commit")
+    file_blob_map: Mapped[list[Blob]] = relationship(
+        secondary=blob_to_commit, back_populates="commit"
+    )
 
     @property
     def hash(self) -> str:
@@ -169,7 +172,8 @@ def set_branch_commit(
         branch: Branch to move.
         commit: Commit to assign to branch.
     """
-    db.execute(sa.update(Branch).filter_by(name=branch.name).values(commit=commit))
+    branch.commit_id = commit.id
+
 
 def init(repo: Repository) -> None:
     """Initalizes a new PyGitlet repository in the given repository.
@@ -195,7 +199,7 @@ def init(repo: Repository) -> None:
     engine = sa.create_engine(f"sqlite+pysqlite:///{db_path}")
 
     aware_unix_epoch = datetime.fromtimestamp(0, tz=timezone.utc).astimezone()
-    init_commit = Commit(aware_unix_epoch, "initial commit")
+    init_commit = Commit(aware_unix_epoch, "initial commit", [], [])
     init_branch = Branch("main", init_commit, True)
 
     Base.metadata.create_all(bind=engine)
@@ -219,7 +223,9 @@ def add(repo: Repository, db: Session, file_path: str) -> None:
     Raises:
         PyGitletException: If the requested file doesn't exist.
     """
-    staged_blob = db.execute(sa.select(Blob).filter_by(name=file_path)).first()
+    staged_blob = db.execute(
+        sa.select(Blob).filter_by(name=file_path)
+    ).scalar_one_or_none()
     if staged_blob is not None and staged_blob.staged:
         if staged_blob.diff == Diff.DELETED:
             staged_blob.diff = Diff.ADDED
@@ -237,13 +243,16 @@ def add(repo: Repository, db: Session, file_path: str) -> None:
         file_path,
         contents,
         (Diff.MODIFIED if file_path in current_commit.file_blob_map else Diff.ADDED),
-        True
+        True,
     )
+    current_commit_blob_hashes = {
+        blob.name: blob.hash for blob in current_commit.file_blob_map
+    }
     if (
-        file_path in current_commit.file_blob_map
-        and current_commit.file_blob_map[file_path].hash == blob.hash
+        blob.name in current_commit_blob_hashes
+        and current_commit_blob_hashes[blob.name] == blob.hash
     ):
-        db.execute(sa.delete(Blob).filter_by(Blob.blob_id == blob.id))
+        db.execute(sa.delete(Blob).filter_by(blob_id=blob.id))
     else:
         db.add(blob)
 
@@ -268,23 +277,41 @@ def commit(repo: Repository, db: Session, message: str) -> None:
 
     current_branch = get_current_branch(db)
     current_commit_tracked = current_branch.commit.file_blob_map
+    new_commit_tracked: list[Blob] = []
     for blob in db.execute(staged_blobs).scalars():
-        if db.execute(all_blobs.filter_by(name=blob.name, staged=False)).first() is not None:
-            blob.diff = Diff.MODIFIED
-        blob.staged = False
+        if blob.diff == Diff.DELETED:
+            db.execute(sa.delete(Blob).filter_by(id=blob.id))
+        else:
+            current_commit_tracked_names = [
+                blob.name for blob in current_commit_tracked
+            ]
+            if (
+                db.execute(
+                    all_blobs.where(blob.name in current_commit_tracked_names)
+                ).first()
+                is not None
+            ):
+                blob.diff = Diff.MODIFIED
+            else:
+                blob.diff = Diff.ADDED
+            new_commit_tracked.append(blob)
+            blob.staged = False
+        db.commit()
 
     commit = Commit(
         datetime.now().astimezone(),
         message,
         [current_branch.commit],
-        file_blob_map=blob_dict,
+        new_commit_tracked,
     )
-    write_object(repo.commits / commit.hash, commit)
+    db.add(commit)
+    db.commit()
 
-    set_branch_commit(repo, current_branch, commit)
+    current_branch.commit_id = commit.id
+    db.commit()
 
 
-def remove(repo: Repository, file_path: Path) -> None:
+def remove(repo: Repository, db: Session, file_path: str) -> None:
     """
     Stages a file for removal.
     Note that this is different from manually removing a file.
@@ -296,25 +323,29 @@ def remove(repo: Repository, file_path: Path) -> None:
     Raises:
         PyGitletException: If the file either doesn't exist or is not tracked by the current commit.
     """
-    current_branch = get_current_branch(repo)
-    stage_file_path = repo.stage / file_path
-
+    current_branch = get_current_branch(db)
+    current_commit_tracked_map = {
+        blob.name: blob.hash for blob in current_branch.commit.file_blob_map
+    }
+    all_blobs = sa.select(Blob)
+    staged_blobs = all_blobs.filter_by(staged=True)
     if (
-        not stage_file_path.exists()
-        and file_path not in current_branch.commit.file_blob_map
+        db.execute(staged_blobs.filter_by(name=file_path)).first() is None
+        and file_path not in current_commit_tracked_map
     ):
         raise PyGitletException("No reason to remove the file.")
 
-    stage_file_path.unlink(missing_ok=True)
+    print(Blob.commit)
+    blob = db.execute(
+        all_blobs.join(Commit).where(
+            Blob.name == file_path, Commit.id.in_([c.id for c in Blob.commit])
+        )
+    ).scalar_one()
+    blob.diff = Diff.DELETED
+    blob.staged = True
+    db.commit()
 
-    absolute_path = repo.gitlet.parent / file_path
-    contents = absolute_path.read_text()
-    current_branch = get_current_branch(repo)
-
-    blob = Blob(file_path, contents, Diff.DELETED)
-    write_object(stage_file_path, blob)
-
-    absolute_path.unlink()
+    (repo.gitlet.parent / file_path).unlink(missing_ok=True)
 
 
 def format_commit(commit: Commit) -> str:
