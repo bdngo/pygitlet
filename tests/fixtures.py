@@ -5,39 +5,43 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.orm import Session, sessionmaker
 
 from pygitlet import commands
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> commands.Repository:
-    return commands.Repository(tmp_path / ".gitlet")
+    repo = commands.Repository(tmp_path / ".gitlet")
+    return repo
 
 
 @pytest.fixture
-def db(tmp_path: Path) -> sa.Engine:
-    return sa.create_engine(f"sqlite+pysqlite:///{tmp_path}/.gitlet/db.sqlite3")
+def db(tmp_path: Path) -> sessionmaker[Session]:
+    engine = sa.create_engine(f"sqlite+pysqlite:///{tmp_path}/.gitlet/db.sqlite3")
+    return sessionmaker(engine)
 
 
 @pytest.fixture
-def tmp_file1(tmp_path: str) -> str:
+def tmp_file1(tmp_path: Path) -> str:
     (tmp_path / "a.in").write_text("a\n")
     return "a.in"
 
 
 @pytest.fixture
-def tmp_file2(tmp_path: str) -> str:
+def tmp_file2(tmp_path: Path) -> str:
     (tmp_path / "b.in").write_text("b\n")
     return "b.in"
 
 
 @pytest.fixture
 def repo_commit_tmp_file1(
-    repo: commands.Repository, tmp_file1: Path
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: str
 ) -> commands.Repository:
-    commands.init(repo)
-    commands.add(repo, tmp_file1)
-    commands.commit(repo, "commit a.in")
+    with db() as session:
+        commands.init(repo)
+        commands.add(repo, session, tmp_file1)
+        commands.commit(repo, session, "commit a.in")
     return repo
 
 
