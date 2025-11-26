@@ -237,7 +237,9 @@ def test_remove_blah(
         assert removed_blob.diff == commands.Diff.DELETED
 
 
-def test_remove_missing_file(repo: commands.Repository, db: sessionmaker[Session]) -> None:
+def test_remove_missing_file(
+    repo: commands.Repository, db: sessionmaker[Session]
+) -> None:
     commands.init(repo)
 
     with pytest.raises(
@@ -248,7 +250,9 @@ def test_remove_missing_file(repo: commands.Repository, db: sessionmaker[Session
 
 
 def test_remove_untracked_file(
-    repo_commit_tmp_file1: commands.Repository, db: sessionmaker[Session], tmp_file2: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_file2: Path,
 ) -> None:
     with pytest.raises(
         errors.PyGitletException, match=r"No reason to remove the file\."
@@ -257,17 +261,24 @@ def test_remove_untracked_file(
             commands.remove(repo_commit_tmp_file1, session, tmp_file2)
 
 
-def test_log_empty_repo(repo: commands.Repository, log_pattern: re.Pattern) -> None:
-    commands.init(repo)
-    log = commands.log(repo)
-    assert len(list(re.finditer(log_pattern, log))) == 1
+def test_log_empty_repo(
+    repo: commands.Repository, db: sessionmaker[Session], log_pattern: re.Pattern
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        log = commands.log(repo, session)
+        assert len(list(re.finditer(log_pattern, log))) == 1
 
 
 def test_log_with_commit(
-    repo_commit_tmp_file1: commands.Repository, tmp_file1: Path, log_pattern: re.Pattern
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_file1: Path,
+    log_pattern: re.Pattern,
 ) -> None:
-    log = commands.log(repo_commit_tmp_file1)
-    assert len(list(re.finditer(log_pattern, log))) == 2
+    with db() as session:
+        log = commands.log(repo_commit_tmp_file1, session)
+        assert len(list(re.finditer(log_pattern, log))) == 2
 
 
 def test_log_only_current_head(
@@ -337,20 +348,24 @@ def test_log_merge_commit(
 
 
 def test_global_log_single_branch(
-    repo: commands.Repository, tmp_file1: Path, log_pattern: re.Pattern
+    repo: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_file1: Path,
+    log_pattern: re.Pattern,
 ) -> None:
-    commands.init(repo)
-    log = commands.log(repo)
-    global_log = commands.global_log(repo)
-    assert log == global_log
+    with db() as session:
+        commands.init(repo)
+        log = commands.log(repo, session)
+        global_log = commands.global_log(repo, session)
+        assert log == global_log
 
-    commands.add(repo, tmp_file1)
-    commands.commit(repo, "commit a.in")
-    log = commands.log(repo)
-    global_log = commands.global_log(repo)
-    assert len(list(re.finditer(log_pattern, log))) == len(
-        list(re.finditer(log_pattern, global_log))
-    )
+        commands.add(repo, session, tmp_file1)
+        commands.commit(repo, session, "commit a.in")
+        log = commands.log(repo, session)
+        global_log = commands.global_log(repo, session)
+        assert len(list(re.finditer(log_pattern, log))) == len(
+            list(re.finditer(log_pattern, global_log))
+        )
 
 
 def test_global_log_with_reset(
