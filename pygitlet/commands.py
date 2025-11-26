@@ -107,9 +107,10 @@ class Commit(Base):
         secondary=commit_to_parent,
         primaryjoin=id == commit_to_parent.c.commit_id,
         secondaryjoin=id == commit_to_parent.c.parent_id,
+        order_by="Commit.id",
     )
     file_blob_map: Mapped[list[Blob]] = relationship(
-        secondary=blob_to_commit, back_populates="commit"
+        secondary=blob_to_commit, back_populates="commit", order_by="Blob.name"
     )
 
     @property
@@ -119,7 +120,13 @@ class Commit(Base):
         Returns:
             SHA-1 hash of commit object.
         """
-        commit_serialized = pickle.dumps(self)
+        data = (
+            self.message,
+            self.timestamp,
+            [p.hash for p in self.parents],
+            [(b.name, b.hash) for b in self.file_blob_map],
+        )
+        commit_serialized = pickle.dumps(data)
         return hashlib.sha1(commit_serialized).hexdigest()
 
     @property
@@ -379,7 +386,7 @@ def format_commit(commit: Commit) -> str:
     return message
 
 
-def log(repo: Repository) -> str:
+def log(repo: Repository, db: Session) -> str:
     """
     Displays a log of the current linear commit history.
     This means it does not show commit history that the working branch does not share.
@@ -390,7 +397,7 @@ def log(repo: Repository) -> str:
     Returns:
         Linear history log to print.
     """
-    current_commit = get_current_branch(repo).commit
+    current_commit = get_current_branch(db).commit
     log = StringIO()
     while True:
         log.write(format_commit(current_commit))
@@ -402,7 +409,7 @@ def log(repo: Repository) -> str:
     return log.read().strip()
 
 
-def global_log(repo: Repository) -> str:
+def global_log(repo: Repository, db: Session) -> str:
     """
     Displays a global log of all repository commits, regardless of working branch.
 
@@ -413,8 +420,8 @@ def global_log(repo: Repository) -> str:
         Global history log to print.
     """
     log = StringIO()
-    for serialized_commit_path in repo.commits.iterdir():
-        commit: Commit = read_object(serialized_commit_path)
+    all_commits = db.execute(sa.select(Commit)).scalars()
+    for commit in all_commits:
         log.write(format_commit(commit))
     log.seek(0)
     return log.read().strip()
