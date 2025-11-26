@@ -310,18 +310,20 @@ def test_log_only_current_head(
 
 def test_log_with_reset(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
     log_pattern: re.Pattern,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b\n")
-    commit_hash = commands.get_current_branch(repo_commit_tmp_file1).commit.hash
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed a.in")
-    commands.reset(repo_commit_tmp_file1, commit_hash)
+    with db() as session:
+        (tmp_path / tmp_file1).write_text("b\n")
+        commit_hash = commands.get_current_branch(session).commit.hash
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed a.in")
+        commands.reset(repo_commit_tmp_file1, session, commit_hash)
 
-    log = commands.log(repo_commit_tmp_file1)
-    assert len(list(re.finditer(log_pattern, log))) == 2
+        log = commands.log(repo_commit_tmp_file1, session)
+        assert len(list(re.finditer(log_pattern, log))) == 2
 
 
 def test_log_merge_commit(
@@ -372,22 +374,24 @@ def test_global_log_single_branch(
 
 def test_global_log_with_reset(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
     log_pattern: re.Pattern,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b\n")
-    commit_hash = commands.get_current_branch(repo_commit_tmp_file1).commit.hash
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed a.in")
-    commands.reset(repo_commit_tmp_file1, commit_hash)
+    with db() as session:
+        (tmp_path / tmp_file1).write_text("b\n")
+        commit_hash = commands.get_current_branch(session).commit.hash
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed a.in")
+        commands.reset(repo_commit_tmp_file1, session, commit_hash)
 
-    log = commands.log(repo_commit_tmp_file1)
-    global_log = commands.global_log(repo_commit_tmp_file1)
-    assert (
-        len(list(re.finditer(log_pattern, log)))
-        == len(list(re.finditer(log_pattern, global_log))) - 1
-    )
+        log = commands.log(repo_commit_tmp_file1, session)
+        global_log = commands.global_log(repo_commit_tmp_file1, session)
+        assert (
+            len(list(re.finditer(log_pattern, log)))
+            == len(list(re.finditer(log_pattern, global_log))) - 1
+        )
 
 
 def test_find(
@@ -924,82 +928,102 @@ def test_remove_branch_nonexistent(
 
 
 def test_reset(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    old_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b\n")
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed a.in")
-    commands.reset(repo_commit_tmp_file1, current_commit.hash)
+    with db() as session:
+        old_contents = (tmp_path / tmp_file1).read_text()
+        (tmp_path / tmp_file1).write_text("b\n")
+        current_commit = commands.get_current_branch(session).commit
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed a.in")
+        commands.reset(repo_commit_tmp_file1, session, current_commit.hash)
 
-    assert (tmp_path / tmp_file1).read_text() == old_contents
+        assert (tmp_path / tmp_file1).read_text() == old_contents
 
 
 def test_reset_nonexistent(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed a.in")
+    with db() as session:
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed a.in")
 
-    with pytest.raises(
-        errors.PyGitletException, match=r"No commit with that id exists\."
-    ):
-        commands.reset(repo_commit_tmp_file1, "foobar")
+        with pytest.raises(
+            errors.PyGitletException, match=r"No commit with that id exists\."
+        ):
+            commands.reset(repo_commit_tmp_file1, session, "foobar")
 
 
 def test_reset_overwrite_untracked_file(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path
+    repo: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
 ) -> None:
-    commands.init(repo)
-    commands.add(repo, tmp_file1)
-    commands.add(repo, tmp_file2)
-    commands.commit(repo, "commit two files")
+    with db() as session:
+        commands.init(repo)
+        commands.add(repo, session, tmp_file1)
+        commands.add(repo, session, tmp_file2)
+        commands.commit(repo, session, "commit two files")
 
-    commands.branch(repo, "new")
-    (tmp_path / "c.in").write_text("c\n")
-    commands.add(repo, Path("c.in"))
-    commands.remove(repo, tmp_file2)
-    commands.commit(repo, "add c.in, remove b.in")
-    current_commit = commands.get_current_branch(repo).commit
+        commands.branch(repo, session, "new")
+        (tmp_path / "c.in").write_text("c\n")
+        commands.add(repo, session, Path("c.in"))
+        commands.remove(repo, session, tmp_file2)
+        commands.commit(repo, session, "add c.in, remove b.in")
+        current_commit = commands.get_current_branch(session).commit
 
-    commands.checkout_branch(repo, "new")
-    (tmp_path / "c.in").write_text("d\n")
-    with pytest.raises(
-        errors.PyGitletException,
-        match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
-    ):
-        commands.reset(repo, current_commit.hash)
+        commands.checkout_branch(repo, session, "new")
+        (tmp_path / "c.in").write_text("d\n")
+        with pytest.raises(
+            errors.PyGitletException,
+            match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
+        ):
+            commands.reset(repo, session, current_commit.hash)
 
 
 def test_reset_empty_stage(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
     tmp_file2: Path,
 ) -> None:
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed on new branch")
+    with db() as session:
+        current_commit = commands.get_current_branch(session).commit
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed on new branch")
 
-    commands.add(repo_commit_tmp_file1, tmp_file2)
-    commands.reset(repo_commit_tmp_file1, current_commit.hash)
-    assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 0
+        commands.add(repo_commit_tmp_file1, session, tmp_file2)
+        commands.reset(repo_commit_tmp_file1, session, current_commit.hash)
+        assert (
+            len(session.execute(sa.select(commands.Blob).filter_by(staged=True)).all())
+            == 0
+        )
 
 
 def test_reset_removed_file(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
     tmp_file2: Path,
 ) -> None:
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    commands.add(repo_commit_tmp_file1, tmp_file2)
-    commands.commit(repo_commit_tmp_file1, "add b.in")
-    commands.reset(repo_commit_tmp_file1, current_commit.hash)
-    assert not (tmp_path / tmp_file2).exists()
+    with db() as session:
+        current_commit = commands.get_current_branch(session).commit
+        commands.add(repo_commit_tmp_file1, session, tmp_file2)
+        commands.commit(repo_commit_tmp_file1, session, "add b.in")
+        commands.reset(repo_commit_tmp_file1, session, current_commit.hash)
+        assert not (tmp_path / tmp_file2).exists()
 
 
 def test_merge(

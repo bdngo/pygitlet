@@ -123,11 +123,11 @@ def main() -> None:
                                     "Unreachable checkout syntax"
                                 )
                     case "branch":
-                        commands.branch(repo, args.branch)
+                        commands.branch(repo, session, args.branch)
                     case "rm-branch":
-                        commands.remove_branch(repo, args.branch)
+                        commands.remove_branch(repo, session, args.branch)
                     case "reset":
-                        commands.reset(repo, args.commit)
+                        commands.reset(repo, session, args.commit)
                     case "merge":
                         commands.merge(repo, args.branch)
                     case "add-remote":

@@ -281,46 +281,42 @@ def commit(repo: Repository, db: Session, message: str) -> None:
     Raises:
         PyGitletException: If the stage is empty or there is no commit message.
     """
-    all_blobs = sa.select(Blob)
-    staged_blobs = all_blobs.filter_by(staged=True)
-    if len(db.execute(staged_blobs).all()) == 0:
+    staged_blobs_query = sa.select(Blob).filter_by(staged=True)
+    staged_blobs = db.execute(staged_blobs_query).scalars().all()
+
+    if not staged_blobs:
         raise PyGitletException("No changes added to the commit.")
-    elif message == "":
+    if not message:
         raise PyGitletException("Please enter a commit message.")
 
     current_branch = get_current_branch(db)
-    current_commit_tracked = current_branch.commit.file_blob_map
-    new_commit_tracked: list[Blob] = []
-    for blob in db.execute(staged_blobs).scalars():
-        if blob.diff == Diff.DELETED:
-            db.execute(sa.delete(Blob).filter_by(id=blob.id))
+    parent_commit = current_branch.commit
+
+    # Get parent commit's blobs
+    tracked_blobs = {b.name: b for b in parent_commit.file_blob_map}
+
+    for staged_blob in staged_blobs:
+        if staged_blob.diff == Diff.DELETED:
+            # File is staged for removal, remove from tracked files
+            if staged_blob.name in tracked_blobs:
+                del tracked_blobs[staged_blob.name]
+            # Delete the "staged for removal" marker blob
+            db.delete(staged_blob)
         else:
-            current_commit_tracked_names = [
-                blob.name for blob in current_commit_tracked
-            ]
-            if (
-                db.execute(
-                    all_blobs.where(blob.name in current_commit_tracked_names)
-                ).first()
-                is not None
-            ):
-                blob.diff = Diff.MODIFIED
-            else:
-                blob.diff = Diff.ADDED
-            new_commit_tracked.append(blob)
-            blob.staged = False
-        db.commit()
+            # File is staged for addition or modification
+            # Add/overwrite in tracked files
+            tracked_blobs[staged_blob.name] = staged_blob
+            staged_blob.staged = False
 
-    commit = Commit(
-        datetime.now().astimezone(),
-        message,
-        [current_branch.commit],
-        new_commit_tracked,
+    new_commit = Commit(
+        timestamp=datetime.now().astimezone(),
+        message=message,
+        parents=[parent_commit],
+        file_blob_map=list(tracked_blobs.values()),
     )
-    db.add(commit)
-    db.commit()
 
-    current_branch.commit_id = commit.id
+    db.add(new_commit)
+    current_branch.commit = new_commit
     db.commit()
 
 
@@ -687,12 +683,22 @@ def checkout_branch(repo: Repository, db: Session, branch_name: str) -> None:
         sa.select(Branch).filter_by(local_name=branch_name)
     ).scalar_one()
 
-    current_branch_name_map = [b.name for b in current_branch.commit.file_blob_map]
-    target_branch_name_map = [b.name for b in target_branch.commit.file_blob_map]
+    current_branch_name_map = {b.name for b in current_branch.commit.file_blob_map}
+    target_branch_name_map = {b.name for b in target_branch.commit.file_blob_map}
 
     for blob in target_branch.commit.file_blob_map:
         absolute_path = repo.gitlet.parent / blob.name
-        if absolute_path.exists() and blob.name not in current_branch_name_map:
+        is_staged = (
+            db.execute(
+                sa.select(Blob).filter_by(staged=True, name=blob.name)
+            ).scalar_one_or_none()
+            is not None
+        )
+        if (
+            absolute_path.exists()
+            and blob.name not in current_branch_name_map
+            and not is_staged
+        ):
             raise PyGitletException(
                 "There is an untracked file in the way; delete it, or add and commit it first."
             )
@@ -757,7 +763,7 @@ def remove_branch(repo: Repository, db: Session, branch_name: str) -> None:
     db.commit()
 
 
-def reset(repo: Repository, commit_id: str) -> None:
+def reset(repo: Repository, db: Session, commit_id: str) -> None:
     """
     Resets the working directory to a given commit ID.
 
@@ -768,31 +774,51 @@ def reset(repo: Repository, commit_id: str) -> None:
     Raises:
         PyGitletException: If the commit ID doesn't exist or if the reset would overwrite any untracked files.
     """
-    if not (repo.commits / commit_id).exists():
+    all_commits = db.execute(sa.select(Commit)).scalars().all()
+    found_commits = [
+        commit for commit in all_commits if commit.hash.startswith(commit_id)
+    ]
+    if len(found_commits) == 0:
         raise PyGitletException("No commit with that id exists.")
+    if len(found_commits) > 1:
+        raise PyGitletException(f'Commit id "{commit_id}" is ambiguous.')
+    target_commit = found_commits[0]
 
-    current_commit = get_current_branch(repo).commit
-    target_commit: Commit = read_object(repo.commits / commit_id)
+    current_commit = get_current_branch(db).commit
+    current_commit_name_map = {b.name for b in current_commit.file_blob_map}
+    target_commit_name_map = {b.name for b in target_commit.file_blob_map}
 
-    for file_name, blob in target_commit.file_blob_map.items():
-        absolute_path = repo.gitlet.parent / file_name
-        if absolute_path.exists() and file_name not in current_commit.file_blob_map:
+    for blob in target_commit.file_blob_map:
+        absolute_path = repo.gitlet.parent / blob.name
+        is_staged = (
+            db.execute(
+                sa.select(Blob).filter_by(staged=True, name=blob.name)
+            ).scalar_one_or_none()
+            is not None
+        )
+        if (
+            absolute_path.exists()
+            and blob.name not in current_commit_name_map
+            and not is_staged
+        ):
             raise PyGitletException(
                 "There is an untracked file in the way; delete it, or add and commit it first."
             )
         absolute_path.write_text(blob.contents)
 
-    for old_file_name, blob in current_commit.file_blob_map.items():
-        absolute_path = repo.gitlet.parent / old_file_name
-        if old_file_name not in target_commit.file_blob_map:
+    for blob in current_commit.file_blob_map:
+        absolute_path = repo.gitlet.parent / blob.name
+        if blob.name not in target_commit_name_map:
             absolute_path.unlink()
 
-    for staged_file in repo.stage.iterdir():
-        if staged_file.is_file():
-            staged_file.unlink()
+    for staged_blob in (
+        db.execute(sa.select(Blob).filter_by(staged=True)).scalars().all()
+    ):
+        db.delete(staged_blob)
 
-    moved_branch = dataclasses.replace(get_current_branch(repo), commit=target_commit)
-    write_branch(repo, moved_branch)
+    current_branch = get_current_branch(db)
+    current_branch.commit = target_commit
+    db.commit()
 
 
 def commit_history(commit: Commit) -> list[Commit]:
