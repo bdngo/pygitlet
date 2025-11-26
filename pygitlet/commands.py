@@ -67,6 +67,7 @@ class Blob(Base):
     """Dataclass for file blobs."""
 
     __tablename__ = "blob"
+    __table_args__ = (sa.UniqueConstraint("name", "contents"),)
 
     id: Mapped[int] = mapped_column(init=False, primary_key=True)
     name: Mapped[str]
@@ -209,7 +210,7 @@ def init(repo: Repository) -> None:
         session.commit()
 
 
-def add(repo: Repository, db: Session, file_path: str) -> None:
+def add(repo: Repository, db: Session, file_path: Path) -> None:
     """Stages a file. Overwrites existing staged files
     if the same named file exists and differs.
     If identical, the file is unstaged.
@@ -224,9 +225,9 @@ def add(repo: Repository, db: Session, file_path: str) -> None:
         PyGitletException: If the requested file doesn't exist.
     """
     staged_blob = db.execute(
-        sa.select(Blob).filter_by(name=file_path)
+        sa.select(Blob).filter_by(name=str(file_path), staged=True)
     ).scalar_one_or_none()
-    if staged_blob is not None and staged_blob.staged:
+    if staged_blob is not None:
         if staged_blob.diff == Diff.DELETED:
             staged_blob.diff = Diff.ADDED
             db.commit()
@@ -239,22 +240,26 @@ def add(repo: Repository, db: Session, file_path: str) -> None:
     contents = absolute_path.read_text()
     current_commit = get_current_branch(db).commit
 
-    blob = Blob(
-        file_path,
-        contents,
-        (Diff.MODIFIED if file_path in current_commit.file_blob_map else Diff.ADDED),
-        True,
-    )
     current_commit_blob_hashes = {
         blob.name: blob.hash for blob in current_commit.file_blob_map
     }
-    if (
-        blob.name in current_commit_blob_hashes
-        and current_commit_blob_hashes[blob.name] == blob.hash
-    ):
-        db.execute(sa.delete(Blob).filter_by(blob_id=blob.id))
-    else:
-        db.add(blob)
+    if str(file_path) in current_commit_blob_hashes and current_commit_blob_hashes[
+        str(file_path)
+    ] == hash_contents(contents):
+        return
+
+    blob = Blob(
+        name=str(file_path),
+        contents=contents,
+        diff=(
+            Diff.MODIFIED
+            if str(file_path) in current_commit_blob_hashes
+            else Diff.ADDED
+        ),
+        staged=True,
+    )
+    db.merge(blob)
+    db.commit()
 
 
 def commit(repo: Repository, db: Session, message: str) -> None:
@@ -311,13 +316,14 @@ def commit(repo: Repository, db: Session, message: str) -> None:
     db.commit()
 
 
-def remove(repo: Repository, db: Session, file_path: str) -> None:
+def remove(repo: Repository, db: Session, file_path: Path) -> None:
     """
     Stages a file for removal.
     Note that this is different from manually removing a file.
 
     Args:
         repo: PyGitlet repository.
+        db: Database session.
         file_path: Relative path to the file being removed.
 
     Raises:
@@ -325,24 +331,29 @@ def remove(repo: Repository, db: Session, file_path: str) -> None:
     """
     current_branch = get_current_branch(db)
     current_commit_tracked_map = {
-        blob.name: blob.hash for blob in current_branch.commit.file_blob_map
+        blob.name: blob for blob in current_branch.commit.file_blob_map
     }
-    all_blobs = sa.select(Blob)
-    staged_blobs = all_blobs.filter_by(staged=True)
-    if (
-        db.execute(staged_blobs.filter_by(name=file_path)).first() is None
-        and file_path not in current_commit_tracked_map
-    ):
+    staged_blob = db.execute(
+        sa.select(Blob).filter_by(staged=True, name=str(file_path))
+    ).scalar_one_or_none()
+
+    if staged_blob is None and str(file_path) not in current_commit_tracked_map:
         raise PyGitletException("No reason to remove the file.")
 
-    print(Blob.commit)
-    blob = db.execute(
-        all_blobs.join(Commit).where(
-            Blob.name == file_path, Commit.id.in_([c.id for c in Blob.commit])
+    if staged_blob:
+        if staged_blob.diff == Diff.ADDED:
+            db.delete(staged_blob)
+        else:
+            staged_blob.diff = Diff.DELETED
+    else:
+        blob = Blob(
+            name=str(file_path),
+            contents="",
+            diff=Diff.DELETED,
+            staged=True,
         )
-    ).scalar_one()
-    blob.diff = Diff.DELETED
-    blob.staged = True
+        db.add(blob)
+
     db.commit()
 
     (repo.gitlet.parent / file_path).unlink(missing_ok=True)
