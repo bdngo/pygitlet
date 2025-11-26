@@ -12,6 +12,7 @@ from pathlib import Path
 from textwrap import dedent
 
 import sqlalchemy as sa
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -78,7 +79,7 @@ class Blob(Base):
         init=False, secondary=blob_to_commit, back_populates="file_blob_map"
     )
 
-    @property
+    @hybrid_property
     def hash(self) -> str:
         """Returns SHA-1 hash of file contents."""
         return hash_contents(self.contents)
@@ -113,7 +114,7 @@ class Commit(Base):
         secondary=blob_to_commit, back_populates="commit", order_by="Blob.name"
     )
 
-    @property
+    @hybrid_property
     def hash(self) -> str:
         """Returns SHA-1 hash of serialized commit.
 
@@ -129,7 +130,7 @@ class Commit(Base):
         commit_serialized = pickle.dumps(data)
         return hashlib.sha1(commit_serialized).hexdigest()
 
-    @property
+    @hybrid_property
     def is_merge_commit(self) -> bool:
         return len(self.parents) > 1
 
@@ -146,7 +147,7 @@ class Branch(Base):
     is_current: Mapped[bool]
     remote: Mapped[str] = mapped_column(default=None, nullable=True)
 
-    @property
+    @hybrid_property
     def name(self) -> str:
         """Get name of branch, accounting for remote branches."""
         return (
@@ -564,8 +565,7 @@ def untracked_status(repo: Repository, db: Session) -> str:
             )
         ).scalar_one_or_none()
         is None
-        and str(f.relative_to(repo.gitlet.parent))
-        not in current_commit_tracked_map
+        and str(f.relative_to(repo.gitlet.parent)) not in current_commit_tracked_map
     )
     if untracked_files != "":
         untracked_files += "\n"
@@ -598,7 +598,7 @@ def status(repo: Repository, db: Session) -> str:
     ).strip()
 
 
-def checkout_file(repo: Repository, file_path: Path) -> None:
+def checkout_file(repo: Repository, db: Session, file_path: Path) -> None:
     """
     Checks out a file from the head commit, overwriting the working version.
 
@@ -609,14 +609,22 @@ def checkout_file(repo: Repository, file_path: Path) -> None:
     Raises:
         PyGitletException: If the file is not tracked by the current commit.
     """
-    current_commit = get_current_branch(repo).commit
-    if file_path not in current_commit.file_blob_map:
+    current_commit = get_current_branch(db).commit
+    file_name_map = [b.name for b in current_commit.file_blob_map]
+    if str(file_path) not in file_name_map:
         raise PyGitletException("File does not exist in that commit.")
-    file_blob = current_commit.file_blob_map[file_path]
+    file_blob = db.execute(
+        sa.select(Blob)
+        .filter_by(name=str(file_path))
+        .join(blob_to_commit)
+        .filter_by(commit_id=current_commit.id)
+    ).scalar_one()
     (repo.gitlet.parent / file_path).write_text(file_blob.contents)
 
 
-def checkout_commit(repo: Repository, commit_id: str, file_path: Path) -> None:
+def checkout_commit(
+    repo: Repository, db: Session, commit_id: str, file_path: Path
+) -> None:
     """
     Checkouts a file from a given commit ID, overwriting the working version.
 
@@ -628,19 +636,29 @@ def checkout_commit(repo: Repository, commit_id: str, file_path: Path) -> None:
     Raises:
         PyGitletException: If the commit ID does not exist or the file is not tracked by the desired commit.
     """
-    commit_glob = repo.commits.glob(f"{commit_id}*")
-    try:
-        found_commit: Commit = read_object(next(commit_glob))
-    except StopIteration as e:
-        raise PyGitletException("No commit with that id exists.") from e
+    all_commits = db.execute(sa.select(Commit)).scalars().all()
+    found_commits = [
+        commit for commit in all_commits if commit.hash.startswith(commit_id)
+    ]
+    if not found_commits:
+        raise PyGitletException("No commit with that id exists.")
+    if len(found_commits) > 1:
+        raise PyGitletException(f'Commit id "{commit_id}" is ambiguous.')
+    found_commit = found_commits[0]
 
-    if file_path not in found_commit.file_blob_map:
+    file_name_map = [b.name for b in found_commit.file_blob_map]
+    if str(file_path) not in file_name_map:
         raise PyGitletException("File does not exist in that commit.")
-    file_blob = found_commit.file_blob_map[file_path]
+    file_blob = db.execute(
+        sa.select(Blob)
+        .filter_by(name=str(file_path))
+        .join(blob_to_commit)
+        .filter_by(commit_id=found_commit.id)
+    ).scalar_one()
     (repo.gitlet.parent / file_path).write_text(file_blob.contents)
 
 
-def checkout_branch(repo: Repository, branch_name: str) -> None:
+def checkout_branch(repo: Repository, db: Session, branch_name: str) -> None:
     """
     Switches branches, overwriting all tracked files in the working directory.
 
@@ -652,38 +670,43 @@ def checkout_branch(repo: Repository, branch_name: str) -> None:
         PyGitletException: If the branch doesn't exist, is the current branch,
         or if there are any untracked files that would be overwritten by the checkout.
     """
-    current_branch = get_current_branch(repo)
-    if not (repo.branches / branch_name).exists():
+    current_branch = get_current_branch(db)
+    if (
+        db.execute(sa.select(Branch).filter_by(name=branch_name)).scalar_one_or_none()
+        is None
+    ):
         raise PyGitletException("No such branch exists.")
     if current_branch.name == branch_name:
         raise PyGitletException("No need to checkout the current branch.")
 
-    target_branch: Branch = read_object(repo.branches / branch_name)
+    target_branch = db.execute(
+        sa.select(Branch).filter_by(name=branch_name)
+    ).scalar_one()
 
-    for file_name, blob in target_branch.commit.file_blob_map.items():
-        absolute_path = repo.gitlet.parent / file_name
-        if (
-            absolute_path.exists()
-            and file_name not in current_branch.commit.file_blob_map
-        ):
+    current_branch_name_map = [b.name for b in current_branch.commit.file_blob_map]
+    target_branch_name_map = [b.name for b in target_branch.commit.file_blob_map]
+
+    for blob in target_branch.commit.file_blob_map:
+        absolute_path = repo.gitlet.parent / blob.name
+        if absolute_path.exists() and blob.name not in current_branch_name_map:
             raise PyGitletException(
                 "There is an untracked file in the way; delete it, or add and commit it first."
             )
         absolute_path.write_text(blob.contents)
 
-    for old_file_name, blob in current_branch.commit.file_blob_map.items():
-        absolute_path = repo.gitlet.parent / old_file_name
-        if old_file_name not in target_branch.commit.file_blob_map:
+    for blob in current_branch.commit.file_blob_map:
+        absolute_path = repo.gitlet.parent / blob.name
+        if blob.name not in target_branch_name_map:
             absolute_path.unlink()
 
-    for staged_file in repo.stage.iterdir():
-        if staged_file.is_file():
-            staged_file.unlink()
+    for staged_blob in (
+        db.execute(sa.select(Blob).filter_by(staged=True)).scalars().all()
+    ):
+        db.delete(staged_blob)
 
-    updated_current_branch = dataclasses.replace(current_branch, is_current=False)
-    updated_target_branch = dataclasses.replace(target_branch, is_current=True)
-    write_branch(repo, updated_current_branch)
-    write_branch(repo, updated_target_branch)
+    current_branch.is_current = False
+    target_branch.is_current = True
+    db.commit()
 
 
 def branch(repo: Repository, branch_name: str) -> None:

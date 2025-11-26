@@ -655,91 +655,119 @@ def test_status_untracked(
 
 
 def test_checkout_file(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.checkout_file(repo_commit_tmp_file1, tmp_file1)
-    contents = (tmp_path / tmp_file1).read_text()
-    assert contents == tracked_contents
+    with db() as session:
+        tracked_contents = (tmp_path / tmp_file1).read_text()
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.checkout_file(repo_commit_tmp_file1, session, tmp_file1)
+        contents = (tmp_path / tmp_file1).read_text()
+        assert contents == tracked_contents
 
 
 def test_checkout_file_untracked(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_file2: Path,
 ) -> None:
     with pytest.raises(
         errors.PyGitletException, match=r"File does not exist in that commit\."
     ):
-        commands.checkout_file(repo_commit_tmp_file1, tmp_file2)
+        with db() as session:
+            commands.checkout_file(repo_commit_tmp_file1, session, tmp_file2)
 
 
 def test_checkout_commit_one_commit(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
 ) -> None:
-    tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b\n")
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    commands.checkout_commit(repo_commit_tmp_file1, current_commit.hash, tmp_file1)
-    contents = (tmp_path / tmp_file1).read_text()
-    assert contents == tracked_contents
+    with db() as session:
+        tracked_contents = (tmp_path / tmp_file1).read_text()
+        (tmp_path / tmp_file1).write_text("b\n")
+        current_commit = commands.get_current_branch(session).commit
+        commands.checkout_commit(
+            repo_commit_tmp_file1, session, current_commit.hash, tmp_file1
+        )
+        contents = (tmp_path / tmp_file1).read_text()
+        assert contents == tracked_contents
 
 
 def test_checkout_commit_substring_hash(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
 ) -> None:
-    tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b\n")
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    commands.checkout_commit(repo_commit_tmp_file1, current_commit.hash[:7], tmp_file1)
-    contents = (tmp_path / tmp_file1).read_text()
-    assert contents == tracked_contents
+    with db() as session:
+        tracked_contents = (tmp_path / tmp_file1).read_text()
+        (tmp_path / tmp_file1).write_text("b\n")
+        current_commit = commands.get_current_branch(session).commit
+        commands.checkout_commit(
+            repo_commit_tmp_file1, session, current_commit.hash[:7], tmp_file1
+        )
+        contents = (tmp_path / tmp_file1).read_text()
+        assert contents == tracked_contents
 
 
 def test_checkout_commit_multiple_commits(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
 ) -> None:
-    tracked_contents = (tmp_path / tmp_file1).read_text()
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed a.in")
+    with db() as session:
+        tracked_contents = (tmp_path / tmp_file1).read_text()
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed a.in")
 
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    parent_commit = current_commit.parents[0]
-    commands.checkout_commit(repo_commit_tmp_file1, parent_commit.hash, tmp_file1)
-    contents = (tmp_path / tmp_file1).read_text()
-    assert contents == tracked_contents
+        current_commit = commands.get_current_branch(session).commit
+        parent_commit = current_commit.parents[0]
+        commands.checkout_commit(
+            repo_commit_tmp_file1, session, parent_commit.hash, tmp_file1
+        )
+        contents = (tmp_path / tmp_file1).read_text()
+        assert contents == tracked_contents
 
-    commands.checkout_commit(repo_commit_tmp_file1, current_commit.hash, tmp_file1)
-    contents = (tmp_path / tmp_file1).read_text()
-    assert contents == "b\n"
+        commands.checkout_commit(
+            repo_commit_tmp_file1, session, current_commit.hash, tmp_file1
+        )
+        contents = (tmp_path / tmp_file1).read_text()
+        assert contents == "b\n"
 
 
 def test_checkout_commit_untracked(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_file2: Path,
 ) -> None:
     with pytest.raises(
         errors.PyGitletException, match=r"File does not exist in that commit\."
     ):
-        current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-        commands.checkout_commit(repo_commit_tmp_file1, current_commit.hash, tmp_file2)
+        with db() as session:
+            current_commit = commands.get_current_branch(session).commit
+            commands.checkout_commit(
+                repo_commit_tmp_file1, session, current_commit.hash, tmp_file2
+            )
 
 
 def test_checkout_commit_bad_id(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_file1: Path,
 ) -> None:
     with pytest.raises(
         errors.PyGitletException, match=r"No commit with that id exists\."
     ):
-        commands.checkout_commit(repo_commit_tmp_file1, "foobar", tmp_file1)
+        with db() as session:
+            commands.checkout_commit(
+                repo_commit_tmp_file1, session, "foobar", tmp_file1
+            )
 
 
 def test_checkout_branch(

@@ -105,19 +105,19 @@ def main() -> None:
                     case "rm":
                         commands.remove(repo, session, args.file)
                     case "log":
-                        print(commands.log(session))
+                        print(commands.log(repo, session))
                     case "global-log":
-                        print(commands.global_log(session))
+                        print(commands.global_log(repo, session))
                     case "status":
-                        print(commands.status(session))
+                        print(commands.status(repo, session))
                     case "checkout":
                         match args.checkout_args:
                             case ["--", file]:
-                                commands.checkout_file(repo, file)
+                                commands.checkout_file(repo, session, file)
                             case [commit_id, file]:
-                                commands.checkout_commit(repo, commit_id, file)
+                                commands.checkout_commit(repo, session, commit_id, file)
                             case [branch]:
-                                commands.checkout_branch(repo, branch)
+                                commands.checkout_branch(repo, session, branch)
                             case _:
                                 raise errors.PyGitletException(
                                     "Unreachable checkout syntax"
