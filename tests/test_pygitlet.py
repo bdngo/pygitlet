@@ -283,27 +283,29 @@ def test_log_with_commit(
 
 def test_log_only_current_head(
     repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
     log_pattern: re.Pattern,
 ) -> None:
-    commands.branch(repo_commit_tmp_file1, "new")
-    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    with db() as session:
+        commands.branch(repo_commit_tmp_file1, session, "new")
+        commands.checkout_branch(repo_commit_tmp_file1, session, "new")
 
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "commit on new branch")
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "commit on new branch")
 
-    (tmp_path / tmp_file1).write_text("c\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "commit on new branch again")
+        (tmp_path / tmp_file1).write_text("c\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "commit on new branch again")
 
-    log = commands.log(repo_commit_tmp_file1)
-    assert len(list(re.finditer(log_pattern, log))) == 4
+        log = commands.log(repo_commit_tmp_file1, session)
+        assert len(list(re.finditer(log_pattern, log))) == 4
 
-    commands.checkout_branch(repo_commit_tmp_file1, "main")
-    log = commands.log(repo_commit_tmp_file1)
-    assert len(list(re.finditer(log_pattern, log))) == 2
+        commands.checkout_branch(repo_commit_tmp_file1, session, "main")
+        log = commands.log(repo_commit_tmp_file1, session)
+        assert len(list(re.finditer(log_pattern, log))) == 2
 
 
 def test_log_with_reset(
@@ -430,12 +432,15 @@ def test_status_empty_repo(
         assert status == expected
 
 
-def test_status_multiple_branches(repo: commands.Repository) -> None:
-    commands.init(repo)
-    commands.branch(repo, "new")
-    status = commands.status(repo)
-    expected = dedent(
-        """
+def test_status_multiple_branches(
+    repo: commands.Repository, db: sessionmaker[Session]
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        commands.branch(repo, session, "new")
+        status = commands.status(repo, session)
+        expected = dedent(
+            """
     === Branches ===
     *main
     new
@@ -447,13 +452,13 @@ def test_status_multiple_branches(repo: commands.Repository) -> None:
     === Modifications Not Staged For Commit ===
 
     === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        ).strip()
+        assert status == expected
 
-    commands.checkout_branch(repo, "new")
-    status = commands.status(repo)
-    expected = dedent(
-        """
+        commands.checkout_branch(repo, session, "new")
+        status = commands.status(repo, session)
+        expected = dedent(
+            """
     === Branches ===
     main
     *new
@@ -465,7 +470,7 @@ def test_status_multiple_branches(repo: commands.Repository) -> None:
     === Modifications Not Staged For Commit ===
 
     === Untracked Files ==="""
-    ).strip()
+        ).strip()
     assert status == expected
 
 
@@ -771,119 +776,151 @@ def test_checkout_commit_bad_id(
 
 
 def test_checkout_branch(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    old_contents = (tmp_path / tmp_file1).read_text()
-    commands.branch(repo_commit_tmp_file1, "new")
-    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    with db() as session:
+        old_contents = (tmp_path / tmp_file1).read_text()
+        commands.branch(repo_commit_tmp_file1, session, "new")
+        commands.checkout_branch(repo_commit_tmp_file1, session, "new")
 
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed on new branch")
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed on new branch")
 
-    commands.checkout_branch(repo_commit_tmp_file1, "main")
-    assert (tmp_path / tmp_file1).read_text() == old_contents
-    assert commands.get_current_branch(repo_commit_tmp_file1).name == "main"
+        commands.checkout_branch(repo_commit_tmp_file1, session, "main")
+        assert (tmp_path / tmp_file1).read_text() == old_contents
+        assert commands.get_current_branch(session).name == "main"
 
-    commands.checkout_branch(repo_commit_tmp_file1, "new")
-    assert (tmp_path / tmp_file1).read_text() == "b\n"
-    assert commands.get_current_branch(repo_commit_tmp_file1).name == "new"
+        commands.checkout_branch(repo_commit_tmp_file1, session, "new")
+        assert (tmp_path / tmp_file1).read_text() == "b\n"
+        assert commands.get_current_branch(session).name == "new"
 
 
-def test_checkout_branch_nonexistent(repo: commands.Repository) -> None:
+def test_checkout_branch_nonexistent(
+    repo: commands.Repository, db: sessionmaker[Session]
+) -> None:
     commands.init(repo)
     with pytest.raises(errors.PyGitletException, match=r"No such branch exists\."):
-        commands.checkout_branch(repo, "foo")
+        with db() as session:
+            commands.checkout_branch(repo, session, "foo")
 
 
-def test_checkout_branch_is_current(repo: commands.Repository) -> None:
+def test_checkout_branch_is_current(
+    repo: commands.Repository, db: sessionmaker[Session]
+) -> None:
     commands.init(repo)
     with pytest.raises(
         errors.PyGitletException, match=r"No need to checkout the current branch\."
     ):
-        commands.checkout_branch(repo, commands.get_current_branch(repo).name)
+        with db() as session:
+            commands.checkout_branch(
+                repo, session, commands.get_current_branch(session).name
+            )
 
 
 def test_checkout_overwrite_untracked_file(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path, tmp_file2: Path
-) -> None:
-    commands.init(repo)
-    commands.branch(repo, "new")
-    commands.add(repo, tmp_file1)
-    commands.add(repo, tmp_file2)
-    commands.commit(repo, "commit two files")
-
-    commands.checkout_branch(repo, "new")
-    (tmp_path / tmp_file1).write_text("b\n")
-    with pytest.raises(
-        errors.PyGitletException,
-        match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
-    ):
-        commands.checkout_branch(repo, "main")
-
-
-def test_checkout_branch_empty_stage(
-    repo_commit_tmp_file1: commands.Repository,
+    repo: commands.Repository,
+    db: sessionmaker[Session],
     tmp_path: Path,
     tmp_file1: Path,
     tmp_file2: Path,
 ) -> None:
-    commands.branch(repo_commit_tmp_file1, "new")
-    commands.checkout_branch(repo_commit_tmp_file1, "new")
+    with db() as session:
+        commands.init(repo)
+        commands.branch(repo, session, "new")
+        commands.add(repo, session, tmp_file1)
+        commands.add(repo, session, tmp_file2)
+        commands.commit(repo, session, "commit two files")
 
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.commit(repo_commit_tmp_file1, "changed on new branch")
-
-    commands.add(repo_commit_tmp_file1, tmp_file2)
-    commands.checkout_branch(repo_commit_tmp_file1, "main")
-    assert len(list(repo_commit_tmp_file1.stage.iterdir())) == 0
-
-
-def test_branch_create(repo: commands.Repository) -> None:
-    commands.init(repo)
-    commands.branch(repo, "new")
-    assert len(list(repo.branches.iterdir())) == 3
+        commands.checkout_branch(repo, session, "new")
+        (tmp_path / tmp_file1).write_text("b\n")
+        with pytest.raises(
+            errors.PyGitletException,
+            match=r"There is an untracked file in the way; delete it, or add and commit it first\.",
+        ):
+            commands.checkout_branch(repo, session, "main")
 
 
-def test_branch_existing(repo: commands.Repository) -> None:
-    commands.init(repo)
-    commands.branch(repo, "new")
-    with pytest.raises(
-        errors.PyGitletException, match=r"A branch with that name already exists\."
-    ):
-        commands.branch(repo, "new")
-    assert len(list(repo.branches.iterdir())) == 3
+def test_checkout_branch_empty_stage(
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
+    tmp_file2: Path,
+) -> None:
+    with db() as session:
+        commands.branch(repo_commit_tmp_file1, session, "new")
+        commands.checkout_branch(repo_commit_tmp_file1, session, "new")
+
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.commit(repo_commit_tmp_file1, session, "changed on new branch")
+
+        commands.add(repo_commit_tmp_file1, session, tmp_file2)
+        commands.checkout_branch(repo_commit_tmp_file1, session, "main")
+        assert (
+            len(session.execute(sa.select(commands.Blob).filter_by(staged=True)).all())
+            == 0
+        )
 
 
-def test_remove_branch(repo: commands.Repository) -> None:
-    commands.init(repo)
-    commands.branch(repo, "new")
-    commands.remove_branch(repo, "new")
-    assert len(list(repo.branches.iterdir())) == 2
+def test_branch_create(repo: commands.Repository, db: sessionmaker[Session]) -> None:
+    with db() as session:
+        commands.init(repo)
+        commands.branch(repo, session, "new")
+        assert len(session.execute(sa.select(commands.Branch)).all()) == 2
 
 
-def test_remove_branch_current(repo: commands.Repository) -> None:
-    commands.init(repo)
-    commands.branch(repo, "new")
-    with pytest.raises(
-        errors.PyGitletException, match=r"Cannot remove the current branch\."
-    ):
-        commands.remove_branch(repo, "main")
-
-    commands.checkout_branch(repo, "new")
-    with pytest.raises(
-        errors.PyGitletException, match=r"Cannot remove the current branch\."
-    ):
-        commands.remove_branch(repo, "new")
+def test_branch_existing(repo: commands.Repository, db: sessionmaker[Session]) -> None:
+    with db() as session:
+        commands.init(repo)
+        commands.branch(repo, session, "new")
+        with pytest.raises(
+            errors.PyGitletException, match=r"A branch with that name already exists\."
+        ):
+            commands.branch(repo, session, "new")
+        assert len(session.execute(sa.select(commands.Branch)).all()) == 2
 
 
-def test_remove_branch_nonexistent(repo: commands.Repository) -> None:
-    commands.init(repo)
-    with pytest.raises(
-        errors.PyGitletException, match=r"A branch with that name does not exist\."
-    ):
-        commands.remove_branch(repo, "new")
+def test_remove_branch(repo: commands.Repository, db: sessionmaker[Session]) -> None:
+    with db() as session:
+        commands.init(repo)
+        commands.branch(repo, session, "new")
+        assert len(session.execute(sa.select(commands.Branch)).all()) == 2
+        commands.remove_branch(repo, session, "new")
+        assert len(session.execute(sa.select(commands.Branch)).all()) == 1
+
+
+def test_remove_branch_current(
+    repo: commands.Repository, db: sessionmaker[Session]
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        commands.branch(repo, session, "new")
+        with pytest.raises(
+            errors.PyGitletException, match=r"Cannot remove the current branch\."
+        ):
+            commands.remove_branch(repo, session, "main")
+
+        commands.checkout_branch(repo, session, "new")
+        with pytest.raises(
+            errors.PyGitletException, match=r"Cannot remove the current branch\."
+        ):
+            commands.remove_branch(repo, session, "new")
+
+
+def test_remove_branch_nonexistent(
+    repo: commands.Repository, db: sessionmaker[Session]
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        with pytest.raises(
+            errors.PyGitletException, match=r"A branch with that name does not exist\."
+        ):
+            commands.remove_branch(repo, session, "new")
 
 
 def test_reset(

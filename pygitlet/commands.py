@@ -460,7 +460,9 @@ def branch_status(repo: Repository, db: Session) -> str:
     Returns:
         Lexicographically sorted branches, with the working branch marked.
     """
-    branch_list = db.execute(sa.select(Branch).order_by(Branch.local_name)).scalars()
+    branch_list = (
+        db.execute(sa.select(Branch).order_by(Branch.local_name)).scalars().all()
+    )
     branch_string = "\n".join(
         f"*{b.local_name}" if b.is_current else str(b.local_name) for b in branch_list
     )
@@ -672,7 +674,9 @@ def checkout_branch(repo: Repository, db: Session, branch_name: str) -> None:
     """
     current_branch = get_current_branch(db)
     if (
-        db.execute(sa.select(Branch).filter_by(name=branch_name)).scalar_one_or_none()
+        db.execute(
+            sa.select(Branch).filter_by(local_name=branch_name)
+        ).scalar_one_or_none()
         is None
     ):
         raise PyGitletException("No such branch exists.")
@@ -680,7 +684,7 @@ def checkout_branch(repo: Repository, db: Session, branch_name: str) -> None:
         raise PyGitletException("No need to checkout the current branch.")
 
     target_branch = db.execute(
-        sa.select(Branch).filter_by(name=branch_name)
+        sa.select(Branch).filter_by(local_name=branch_name)
     ).scalar_one()
 
     current_branch_name_map = [b.name for b in current_branch.commit.file_blob_map]
@@ -709,7 +713,7 @@ def checkout_branch(repo: Repository, db: Session, branch_name: str) -> None:
     db.commit()
 
 
-def branch(repo: Repository, branch_name: str) -> None:
+def branch(repo: Repository, db: Session, branch_name: str) -> None:
     """
     Creates a new branch pointing to the current commit.
 
@@ -720,14 +724,18 @@ def branch(repo: Repository, branch_name: str) -> None:
     Raises:
         PyGitletException: If the desired branch name already exists.
     """
-    if (repo.branches / branch_name).exists():
+    potential_branch = db.execute(
+        sa.select(Branch).filter_by(local_name=branch_name)
+    ).scalar_one_or_none()
+    if potential_branch is not None:
         raise PyGitletException("A branch with that name already exists.")
-    current_commit = get_current_branch(repo).commit
+    current_commit = get_current_branch(db).commit
     new_branch = Branch(branch_name, current_commit, False)
-    write_branch(repo, new_branch)
+    db.add(new_branch)
+    db.commit()
 
 
-def remove_branch(repo: Repository, branch_name: str) -> None:
+def remove_branch(repo: Repository, db: Session, branch_name: str) -> None:
     """
     Deletes a branch.
 
@@ -738,11 +746,15 @@ def remove_branch(repo: Repository, branch_name: str) -> None:
     Raises:
         PyGitletException: If the branch either doesn't exist or is the current working branch.
     """
-    if not (repo.branches / branch_name).exists():
+    potential_branch = db.execute(
+        sa.select(Branch).filter_by(local_name=branch_name)
+    ).scalar_one_or_none()
+    if potential_branch is None:
         raise PyGitletException("A branch with that name does not exist.")
-    if get_current_branch(repo).name == branch_name:
+    if get_current_branch(db).name == branch_name:
         raise PyGitletException("Cannot remove the current branch.")
-    (repo.branches / branch_name).unlink()
+    db.delete(potential_branch)
+    db.commit()
 
 
 def reset(repo: Repository, commit_id: str) -> None:
