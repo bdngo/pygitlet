@@ -388,37 +388,46 @@ def test_global_log_with_reset(
     )
 
 
-def test_find(repo_commit_tmp_file1: commands.Repository) -> None:
-    current_commit = commands.get_current_branch(repo_commit_tmp_file1).commit
-    assert current_commit.hash == commands.find(
-        repo_commit_tmp_file1, current_commit.message
-    )
+def test_find(
+    repo_commit_tmp_file1: commands.Repository, db: sessionmaker[Session]
+) -> None:
+    with db() as session:
+        current_commit = commands.get_current_branch(session).commit
+        assert current_commit.hash == commands.find(
+            repo_commit_tmp_file1, session, current_commit.message
+        )
 
 
-def test_find_no_match(repo_commit_tmp_file1: commands.Repository) -> None:
+def test_find_no_match(
+    repo_commit_tmp_file1: commands.Repository, db: sessionmaker[Session]
+) -> None:
     with pytest.raises(
         errors.PyGitletException, match=r"Found no commit with that message\."
     ):
-        commands.find(repo_commit_tmp_file1, "blah")
+        with db() as session:
+            commands.find(repo_commit_tmp_file1, session, "blah")
 
 
-def test_status_empty_repo(repo: commands.Repository) -> None:
-    commands.init(repo)
-    status = commands.status(repo)
-    expected = dedent(
-        """
-    === Branches ===
-    *main
+def test_status_empty_repo(
+    repo: commands.Repository, db: sessionmaker[Session]
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        status = commands.status(repo, session)
+        expected = dedent(
+            """
+        === Branches ===
+        *main
 
-    === Staged Files ===
+        === Staged Files ===
 
-    === Removed Files ===
+        === Removed Files ===
 
-    === Modifications Not Staged For Commit ===
+        === Modifications Not Staged For Commit ===
 
-    === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        === Untracked Files ==="""
+        ).strip()
+        assert status == expected
 
 
 def test_status_multiple_branches(repo: commands.Repository) -> None:
@@ -460,163 +469,189 @@ def test_status_multiple_branches(repo: commands.Repository) -> None:
     assert status == expected
 
 
-def test_status_staged_for_addition(repo: commands.Repository, tmp_file1: Path) -> None:
-    commands.init(repo)
-    commands.add(repo, tmp_file1)
-    status = commands.status(repo)
-    expected = dedent(
-        f"""
-    === Branches ===
-    *main
+def test_status_staged_for_addition(
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: Path
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        commands.add(repo, session, tmp_file1)
+        status = commands.status(repo, session)
+        expected = dedent(
+            f"""
+        === Branches ===
+        *main
 
-    === Staged Files ===
-    {tmp_file1.name}
+        === Staged Files ===
+        {tmp_file1.name}
 
-    === Removed Files ===
+        === Removed Files ===
 
-    === Modifications Not Staged For Commit ===
+        === Modifications Not Staged For Commit ===
 
-    === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        === Untracked Files ==="""
+        ).strip()
+        assert status == expected
 
 
 def test_status_staged_for_removal(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b\n")
-    commands.add(repo_commit_tmp_file1, tmp_file1)
-    commands.remove(repo_commit_tmp_file1, tmp_file1)
-    status = commands.status(repo_commit_tmp_file1)
-    expected = dedent(
-        f"""
-    === Branches ===
-    *main
+    with db() as session:
+        (tmp_path / tmp_file1).write_text("b\n")
+        commands.add(repo_commit_tmp_file1, session, tmp_file1)
+        commands.remove(repo_commit_tmp_file1, session, tmp_file1)
+        status = commands.status(repo_commit_tmp_file1, session)
+        expected = dedent(
+            f"""
+        === Branches ===
+        *main
 
-    === Staged Files ===
+        === Staged Files ===
 
-    === Removed Files ===
-    {tmp_file1.name}
+        === Removed Files ===
+        {tmp_file1.name}
 
-    === Modifications Not Staged For Commit ===
+        === Modifications Not Staged For Commit ===
 
-    === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        === Untracked Files ==="""
+        ).strip()
+        assert status == expected
 
 
 def test_status_modified_unstaged(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    (tmp_path / tmp_file1).write_text("b\n")
-    status = commands.status(repo_commit_tmp_file1)
-    expected = dedent(
-        f"""
-    === Branches ===
-    *main
+    with db() as session:
+        (tmp_path / tmp_file1).write_text("b\n")
+        status = commands.status(repo_commit_tmp_file1, session)
+        expected = dedent(
+            f"""
+        === Branches ===
+        *main
 
-    === Staged Files ===
+        === Staged Files ===
 
-    === Removed Files ===
+        === Removed Files ===
 
-    === Modifications Not Staged For Commit ===
-    {tmp_file1.name} (modified)
+        === Modifications Not Staged For Commit ===
+        {tmp_file1.name} (modified)
 
-    === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        === Untracked Files ==="""
+        ).strip()
+        assert status == expected
 
 
 def test_status_deleted_unstaged(
-    repo_commit_tmp_file1: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo_commit_tmp_file1: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    (tmp_path / tmp_file1).unlink()
-    status = commands.status(repo_commit_tmp_file1)
-    expected = dedent(
-        f"""
-    === Branches ===
-    *main
+    with db() as session:
+        (tmp_path / tmp_file1).unlink()
+        status = commands.status(repo_commit_tmp_file1, session)
+        expected = dedent(
+            f"""
+        === Branches ===
+        *main
 
-    === Staged Files ===
+        === Staged Files ===
 
-    === Removed Files ===
+        === Removed Files ===
 
-    === Modifications Not Staged For Commit ===
-    {tmp_file1.name} (deleted)
+        === Modifications Not Staged For Commit ===
+        {tmp_file1.name} (deleted)
 
-    === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        === Untracked Files ==="""
+        ).strip()
+        assert status == expected
 
 
 def test_status_modified_staged(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    commands.init(repo)
-    commands.add(repo, tmp_file1)
-    (tmp_path / tmp_file1).write_text("b\n")
-    status = commands.status(repo)
-    expected = dedent(
-        f"""
-    === Branches ===
-    *main
+    with db() as session:
+        commands.init(repo)
+        commands.add(repo, session, tmp_file1)
+        (tmp_path / tmp_file1).write_text("b\n")
+        status = commands.status(repo, session)
+        expected = dedent(
+            f"""
+        === Branches ===
+        *main
 
-    === Staged Files ===
-    {tmp_file1.name}
+        === Staged Files ===
+        {tmp_file1.name}
 
-    === Removed Files ===
+        === Removed Files ===
 
-    === Modifications Not Staged For Commit ===
-    {tmp_file1.name} (modified)
+        === Modifications Not Staged For Commit ===
+        {tmp_file1.name} (modified)
 
-    === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        === Untracked Files ==="""
+        ).strip()
+        assert status == expected
 
 
 def test_status_deleted_staged(
-    repo: commands.Repository, tmp_path: Path, tmp_file1: Path
+    repo: commands.Repository,
+    db: sessionmaker[Session],
+    tmp_path: Path,
+    tmp_file1: Path,
 ) -> None:
-    commands.init(repo)
-    commands.add(repo, tmp_file1)
-    (tmp_path / tmp_file1).unlink()
-    status = commands.status(repo)
-    expected = dedent(
-        f"""
-    === Branches ===
-    *main
+    with db() as session:
+        commands.init(repo)
+        commands.add(repo, session, tmp_file1)
+        (tmp_path / tmp_file1).unlink()
+        status = commands.status(repo, session)
+        expected = dedent(
+            f"""
+        === Branches ===
+        *main
 
-    === Staged Files ===
-    {tmp_file1.name}
+        === Staged Files ===
+        {tmp_file1.name}
 
-    === Removed Files ===
+        === Removed Files ===
 
-    === Modifications Not Staged For Commit ===
-    {tmp_file1.name} (deleted)
+        === Modifications Not Staged For Commit ===
+        {tmp_file1.name} (deleted)
 
-    === Untracked Files ==="""
-    ).strip()
-    assert status == expected
+        === Untracked Files ==="""
+        ).strip()
+        assert status == expected
 
 
-def test_status_untracked(repo: commands.Repository, tmp_file1: Path) -> None:
-    commands.init(repo)
-    status = commands.status(repo)
-    expected = dedent(
-        f"""
-    === Branches ===
-    *main
+def test_status_untracked(
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: Path
+) -> None:
+    with db() as session:
+        commands.init(repo)
+        status = commands.status(repo, session)
+        expected = dedent(
+            f"""
+        === Branches ===
+        *main
 
-    === Staged Files ===
+        === Staged Files ===
 
-    === Removed Files ===
+        === Removed Files ===
 
-    === Modifications Not Staged For Commit ===
+        === Modifications Not Staged For Commit ===
 
-    === Untracked Files ===
-    {tmp_file1.name}"""
-    ).strip()
-    assert status == expected
+        === Untracked Files ===
+        {tmp_file1.name}"""
+        ).strip()
+        assert status == expected
 
 
 def test_checkout_file(

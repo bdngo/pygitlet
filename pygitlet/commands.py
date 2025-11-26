@@ -427,7 +427,7 @@ def global_log(repo: Repository, db: Session) -> str:
     return log.read().strip()
 
 
-def find(repo: Repository, message: str) -> str:
+def find(repo: Repository, db: Session, message: str) -> str:
     """
     Searches for commits with a given commit message.
     Search is exact and case-sensitive.
@@ -440,8 +440,8 @@ def find(repo: Repository, message: str) -> str:
         IDs of commits with matching messages.
     """
     filtered_list = []
-    for serialized_commit_path in repo.commits.iterdir():
-        commit: Commit = read_object(serialized_commit_path)
+    all_commits = db.execute(sa.select(Commit)).scalars()
+    for commit in all_commits:
         if commit.message == message:
             filtered_list.append(commit.hash)
     if filtered_list == []:
@@ -449,7 +449,7 @@ def find(repo: Repository, message: str) -> str:
     return "\n".join(filtered_list)
 
 
-def branch_status(repo: Repository) -> str:
+def branch_status(repo: Repository, db: Session) -> str:
     """
     Utility function to generate status of branches.
 
@@ -459,28 +459,16 @@ def branch_status(repo: Repository) -> str:
     Returns:
         Lexicographically sorted branches, with the working branch marked.
     """
-    branch_list = []
-    for branch_path in repo.branches.iterdir():
-        if branch_path.is_symlink():
-            continue
-        if branch_path.is_file():
-            branch: Branch = read_object(branch_path)
-            branch_list.append(branch)
-        elif branch_path.is_dir():
-            for remote_branch in branch_path.iterdir():
-                if not remote_branch.is_symlink():
-                    remote_branch_leaf: Branch = read_object(remote_branch)
-                    branch_list.append(remote_branch_leaf)
-    sorted_branch_list: list[Branch] = sorted(branch_list, key=lambda x: x.name)
+    branch_list = db.execute(sa.select(Branch).order_by(Branch.local_name)).scalars()
     branch_string = "\n".join(
-        f"*{b.name}" if b.is_current else str(b.name) for b in sorted_branch_list
+        f"*{b.local_name}" if b.is_current else str(b.local_name) for b in branch_list
     )
     if branch_string != "":
         branch_string += "\n"
     return branch_string
 
 
-def stage_status(repo: Repository) -> tuple[str, str]:
+def stage_status(repo: Repository, db: Session) -> tuple[str, str]:
     """
     Utility function to generate status of staged files.
 
@@ -490,10 +478,7 @@ def stage_status(repo: Repository) -> tuple[str, str]:
     Returns:
         Lexicographically sorted staged files split into added/modified and removed files.
     """
-    staged_blobs = []
-    for blob_path in repo.stage.iterdir():
-        blob: Blob = read_object(blob_path)
-        staged_blobs.append(blob)
+    staged_blobs = db.execute(sa.select(Blob).filter_by(staged=True)).scalars().all()
     staged_files = "\n".join(
         sorted(str(b.name) for b in staged_blobs if b.diff != Diff.DELETED)
     )
@@ -507,7 +492,7 @@ def stage_status(repo: Repository) -> tuple[str, str]:
     return staged_files, removed_files
 
 
-def modified_status(repo: Repository) -> str:
+def modified_status(repo: Repository, db: Session) -> str:
     """
     Utility function to generate status of unstaged & modified files.
 
@@ -517,26 +502,29 @@ def modified_status(repo: Repository) -> str:
     Returns:
         Lexicographically sorted unstaged modified files with the type of diff indicated.
     """
-    staged_blobs = []
-    for blob_path in repo.stage.iterdir():
-        blob: Blob = read_object(blob_path)
-        staged_blobs.append(blob)
-
+    staged_blobs = db.execute(sa.select(Blob).filter_by(staged=True)).scalars()
     modified_files_with_diff = {}
-    current_commit = get_current_branch(repo).commit
-    for relative_path, blob in current_commit.file_blob_map.items():
-        if (repo.gitlet.parent / relative_path).exists():
-            contents = (repo.gitlet.parent / relative_path).read_text()
+    current_commit = get_current_branch(db).commit
+    for blob in current_commit.file_blob_map:
+        if (repo.gitlet.parent / blob.name).exists():
+            contents = (repo.gitlet.parent / blob.name).read_text()
             hashed_contents = hash_contents(contents)
             if (
                 hashed_contents != blob.hash
-                and not (repo.stage / relative_path).exists()
+                and db.execute(
+                    sa.select(Blob).filter_by(staged=True, name=blob.name)
+                ).scalar_one_or_none()
+                is None
             ):
-                modified_files_with_diff[relative_path] = Diff.MODIFIED
+                modified_files_with_diff[blob.name] = Diff.MODIFIED
         else:
-            potentially_staged_for_removal = repo.stage / relative_path
-            if not potentially_staged_for_removal.exists():
-                modified_files_with_diff[relative_path] = Diff.DELETED
+            if (
+                db.execute(
+                    sa.select(Blob).filter_by(staged=True, name=blob.name)
+                ).scalar_one_or_none()
+                is None
+            ):
+                modified_files_with_diff[blob.name] = Diff.DELETED
     for staged_blob in staged_blobs:
         if staged_blob.diff == Diff.ADDED:
             if (repo.gitlet.parent / staged_blob.name).exists():
@@ -554,7 +542,7 @@ def modified_status(repo: Repository) -> str:
     return modified_files
 
 
-def untracked_status(repo: Repository) -> str:
+def untracked_status(repo: Repository, db: Session) -> str:
     """
     Utility function to generate status of untracked files.
 
@@ -564,20 +552,27 @@ def untracked_status(repo: Repository) -> str:
     Returns:
         Lexicographically sorted untracked files, excluding subdirectories.
     """
-    current_commit = get_current_branch(repo).commit
+    current_commit = get_current_branch(db).commit
+    current_commit_tracked_map = {b.name for b in current_commit.file_blob_map}
     untracked_files = "\n".join(
         f.name
         for f in repo.gitlet.parent.iterdir()
         if f.is_file()
-        and not (repo.stage / f.relative_to(repo.gitlet.parent)).exists()
-        and f.relative_to(repo.gitlet.parent) not in current_commit.file_blob_map
+        and db.execute(
+            sa.select(Blob).filter_by(
+                staged=True, name=str(f.relative_to(repo.gitlet.parent))
+            )
+        ).scalar_one_or_none()
+        is None
+        and str(f.relative_to(repo.gitlet.parent))
+        not in current_commit_tracked_map
     )
     if untracked_files != "":
         untracked_files += "\n"
     return untracked_files
 
 
-def status(repo: Repository) -> str:
+def status(repo: Repository, db: Session) -> str:
     """
     Prints status of repository.
 
@@ -587,10 +582,10 @@ def status(repo: Repository) -> str:
     Returns:
         Status of repository, including branches, staged files, modified tracked files, and untracked files.
     """
-    branch_string = branch_status(repo)
-    staged_files, removed_files = stage_status(repo)
-    modified_files = modified_status(repo)
-    untracked_files = untracked_status(repo)
+    branch_string = branch_status(repo, db)
+    staged_files, removed_files = stage_status(repo, db)
+    modified_files = modified_status(repo, db)
+    untracked_files = untracked_status(repo, db)
 
     return "\n".join(
         [
