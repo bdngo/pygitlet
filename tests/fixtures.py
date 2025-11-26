@@ -23,20 +23,20 @@ def db(tmp_path: Path) -> sessionmaker[Session]:
 
 
 @pytest.fixture
-def tmp_file1(tmp_path: Path) -> str:
+def tmp_file1(tmp_path: Path) -> Path:
     (tmp_path / "a.in").write_text("a\n")
-    return "a.in"
+    return Path("a.in")
 
 
 @pytest.fixture
-def tmp_file2(tmp_path: Path) -> str:
+def tmp_file2(tmp_path: Path) -> Path:
     (tmp_path / "b.in").write_text("b\n")
-    return "b.in"
+    return Path("b.in")
 
 
 @pytest.fixture
 def repo_commit_tmp_file1(
-    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: str
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: Path
 ) -> commands.Repository:
     with db() as session:
         commands.init(repo)

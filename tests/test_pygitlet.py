@@ -1,6 +1,4 @@
-import pickle
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from textwrap import dedent
 
@@ -32,7 +30,7 @@ def test_add(
     repo: commands.Repository,
     db: sessionmaker[Session],
     tmp_path: Path,
-    tmp_file1: str,
+    tmp_file1: Path,
 ) -> None:
     with db() as session:
         commands.init(repo)
@@ -40,7 +38,7 @@ def test_add(
         session.commit()
 
         blob = session.execute(
-            sa.select(commands.Blob).filter_by(name=tmp_file1, staged=True)
+            sa.select(commands.Blob).filter_by(name=str(tmp_file1), staged=True)
         ).scalar_one()
         contents = (tmp_path / tmp_file1).read_text()
         assert blob.contents == contents
@@ -50,7 +48,7 @@ def test_add(
 def test_add_unchanged_file(
     repo_commit_tmp_file1: commands.Repository,
     db: sessionmaker[Session],
-    tmp_file1: str,
+    tmp_file1: Path,
 ) -> None:
     with db() as session:
         commands.add(repo_commit_tmp_file1, session, tmp_file1)
@@ -65,13 +63,13 @@ def test_add_missing_file(repo: commands.Repository, db: sessionmaker[Session]) 
 
     with pytest.raises(errors.PyGitletException, match=r"File does not exist\."):
         with db() as session:
-            commands.add(repo, session, "b.in")
+            commands.add(repo, session, Path("b.in"))
 
 
 def test_add_duplicate_file(
     repo_commit_tmp_file1: commands.Repository,
     db: sessionmaker[Session],
-    tmp_file1: str,
+    tmp_file1: Path,
 ) -> None:
     with db() as session:
         commands.add(repo_commit_tmp_file1, session, tmp_file1)
@@ -95,13 +93,13 @@ def test_add_removed_file(
         )
 
         blob = session.execute(
-            sa.select(commands.Blob).filter_by(name=tmp_file1, staged=True)
+            sa.select(commands.Blob).filter_by(name=str(tmp_file1), staged=True)
         ).scalar_one()
         assert blob.diff == commands.Diff.ADDED
 
 
 def test_commit(
-    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: str
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: Path
 ) -> None:
     with db() as session:
         commands.init(repo)
@@ -133,7 +131,7 @@ def test_commit_changed_file(
     repo_commit_tmp_file1: commands.Repository,
     db: sessionmaker[Session],
     tmp_path: Path,
-    tmp_file1: str,
+    tmp_file1: Path,
 ) -> None:
     with db() as session:
         (tmp_path / tmp_file1).write_text("b\n")
@@ -150,7 +148,7 @@ def test_commit_changed_file(
         assert current_commit.parents[0].message == "commit a.in"
 
         changed_blob = session.execute(
-            all_blobs.filter_by(name=tmp_file1, contents="b\n")
+            all_blobs.filter_by(name=str(tmp_file1), contents="b\n")
         ).scalar_one()
         assert changed_blob.diff == commands.Diff.MODIFIED
 
@@ -159,11 +157,11 @@ def test_commit_removed_file(
     repo_commit_tmp_file1: commands.Repository,
     db: sessionmaker[Session],
     tmp_path: Path,
-    tmp_file1: str,
+    tmp_file1: Path,
 ) -> None:
     with db() as session:
         tracked_blob = session.execute(
-            sa.select(commands.Blob).filter_by(name=tmp_file1)
+            sa.select(commands.Blob).filter_by(name=str(tmp_file1))
         ).scalar_one()
         (tmp_path / tmp_file1).write_text("b\n")
         commands.add(repo_commit_tmp_file1, session, tmp_file1)
@@ -174,7 +172,7 @@ def test_commit_removed_file(
         )
 
         blob = session.execute(
-            sa.select(commands.Blob).filter_by(staged=True, name=tmp_file1)
+            sa.select(commands.Blob).filter_by(staged=True, name=str(tmp_file1))
         ).scalar_one()
         assert blob.name == tracked_blob.name
         assert blob.contents == "b\n"
@@ -184,8 +182,8 @@ def test_commit_removed_file(
 def test_commit_multiple_files(
     repo: commands.Repository,
     db: sessionmaker[Session],
-    tmp_file1: str,
-    tmp_file2: str,
+    tmp_file1: Path,
+    tmp_file2: Path,
 ) -> None:
     with db() as session:
         commands.init(repo)
@@ -209,7 +207,7 @@ def test_commit_empty_stage(
 
 
 def test_commit_empty_message(
-    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: str
+    repo: commands.Repository, db: sessionmaker[Session], tmp_file1: Path
 ) -> None:
     commands.init(repo)
     with db() as session:
@@ -224,42 +222,39 @@ def test_remove_blah(
     repo_commit_tmp_file1: commands.Repository,
     db: sessionmaker[Session],
     tmp_path: Path,
-    tmp_file1: str,
+    tmp_file1: Path,
 ) -> None:
     (tmp_path / tmp_file1).write_text("b\n")
     with db() as session:
-        commands.add(repo_commit_tmp_file1, session, tmp_file1)
         commands.remove(repo_commit_tmp_file1, session, tmp_file1)
 
+        staged_blobs = sa.select(commands.Blob).filter_by(staged=True)
         assert not (tmp_path / tmp_file1).exists()
-        assert (
-            len(session.execute(sa.select(commands.Blob).filter_by(staged=True)).all())
-            == 1
-        )
+        assert len(session.execute(staged_blobs).all()) == 1
 
-        removed_blob = session.execute(
-            sa.select(commands.Blob).filter_by(staged=True)
-        ).scalar_one()
-        assert removed_blob.name == tmp_file1
+        removed_blob = session.execute(staged_blobs).scalar_one()
+        assert removed_blob.name == str(tmp_file1)
         assert removed_blob.diff == commands.Diff.DELETED
 
 
-def test_remove_missing_file(repo: commands.Repository) -> None:
+def test_remove_missing_file(repo: commands.Repository, db: sessionmaker[Session]) -> None:
     commands.init(repo)
 
     with pytest.raises(
         errors.PyGitletException, match=r"No reason to remove the file\."
     ):
-        commands.remove(repo, Path("b.in"))
+        with db() as session:
+            commands.remove(repo, session, Path("b.in"))
 
 
 def test_remove_untracked_file(
-    repo_commit_tmp_file1: commands.Repository, tmp_file1: Path, tmp_file2: Path
+    repo_commit_tmp_file1: commands.Repository, db: sessionmaker[Session], tmp_file2: Path
 ) -> None:
     with pytest.raises(
         errors.PyGitletException, match=r"No reason to remove the file\."
     ):
-        commands.remove(repo_commit_tmp_file1, tmp_file2)
+        with db() as session:
+            commands.remove(repo_commit_tmp_file1, session, tmp_file2)
 
 
 def test_log_empty_repo(repo: commands.Repository, log_pattern: re.Pattern) -> None:
